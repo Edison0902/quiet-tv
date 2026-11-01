@@ -40,6 +40,7 @@ final class WallpaperStore {
         catalog.normalize();
         try{screensavers.initialize(catalog);}catch(IOException e){DiagnosticLog.error("screensaver.load.failed",e);}
         importBundledWallpaper(context);
+        importBundledBatch(context);
     }
     /**
      * Fork: on a fresh catalog the bundled landscape (assets/default-wallpaper.jpg) is imported
@@ -71,6 +72,55 @@ final class WallpaperStore {
         }catch(IOException e){Log.w("QuietTV","Bundled wallpaper unavailable: "+e);}
     }
     synchronized WallpaperCatalog snapshot() { return catalog.copy(); }
+    /**
+     * Fork: assets/wallpapers/ ships a curated batch, wallpapers.json names the entries. Every
+     * asset missing from the catalog is imported once per batch stamp, and a fresh stamp also
+     * turns hourly rotation on (never while the owner is on the daily wallpaper or has already
+     * been rotating). Nothing here removes or overrides a wallpaper the owner chose.
+     */
+    private void importBundledBatch(Context context){
+        try{
+            String[] files=context.getAssets().list("wallpapers");
+            if(files.length==0)return;
+            SharedPreferences prefs=context.getSharedPreferences("bundled-wallpapers-batch",0);
+            String stamp=new String(asset(context,"wallpapers.stamp"),Charsets.UTF_8).trim();
+            if(stamp.equals(prefs.getString("stamp","")))return;
+            JSONObject names=new JSONObject();
+            try{
+                JSONArray manifest=new JSONArray(new String(asset(context,"wallpapers/wallpapers.json"),Charsets.UTF_8));
+                for(int i=0;i<manifest.length();i++){JSONObject item=manifest.getJSONObject(i);names.put(item.getString("file"),item.getString("name"));}
+            }catch(IOException|JSONException missing){/* no manifest: fall back to asset file names */}
+            int imported=0;
+            for(String file:files){
+                if(!file.toLowerCase(java.util.Locale.US).matches(".*\\.(jpg|jpeg|png|webp)$"))continue;
+                String display=names.optString(file,file.replaceFirst("(?i)\\.(jpg|jpeg|png|webp)$","").replaceFirst("^[0-9]+-",""));
+                boolean known=false;for(WallpaperCatalog.Entry entry:catalog.custom)if(display.equals(entry.name)){known=true;break;}
+                if(known)continue;
+                File stage=new File(directory,"incoming-batch.tmp");
+                try(InputStream input=context.getAssets().open("wallpapers/"+file);OutputStream output=new FileOutputStream(stage)){
+                    byte[] buffer=new byte[8192];int n;while((n=input.read(buffer))>0)output.write(buffer,0,n);
+                }
+                BitmapFactory.Options options=new BitmapFactory.Options();options.inJustDecodeBounds=true;
+                BitmapFactory.decodeFile(stage.getPath(),options);
+                if(options.outWidth<=0)continue;
+                add(stage,display,options.outWidth,options.outHeight);imported++;
+            }
+            List<WallpaperCatalog.Entry> pictures=catalog.pictures();
+            boolean daily=WallpaperCatalog.DAILY.equals(catalog.current);
+            if(imported>0&&!catalog.rotating&&!daily&&pictures.size()>=2){
+                String start=catalog.current;boolean in=false;
+                for(WallpaperCatalog.Entry entry:pictures)if(entry.id.equals(start))in=true;
+                rotation(false,60,in?start:null);
+            }
+            prefs.edit().putString("stamp",stamp).apply();
+            if(imported>0)Log.i("QuietTV","Bundled wallpapers imported: "+imported);
+        }catch(IOException e){Log.w("QuietTV","Bundled wallpapers unavailable: "+e);}
+    }
+    private static byte[] asset(Context context,String name) throws IOException {
+        InputStream input=context.getAssets().open(name);ByteArrayOutputStream buffer=new ByteArrayOutputStream();
+        try{byte[] chunk=new byte[8192];int n;while((n=input.read(chunk))>0)buffer.write(chunk,0,n);}finally{input.close();}
+        return buffer.toByteArray();
+    }
     File dailyDirectory() throws IOException {
         File folder=new File(directory,"daily");
         if(!folder.isDirectory()&&!folder.mkdirs())throw new IOException("Daily wallpaper storage unavailable");return folder;

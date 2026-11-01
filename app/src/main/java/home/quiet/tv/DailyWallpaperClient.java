@@ -9,7 +9,7 @@ import javax.net.ssl.*;
 
 /** Bing metadata and final image requests have independent bounds. */
 final class DailyWallpaperClient {
-    static final long MAX_IMAGE_BYTES=8L*1024*1024;
+    static final long MAX_IMAGE_BYTES=16L*1024*1024;
     static final String BING_URL="https://cn.bing.com/HPImageArchive.aspx?format=js&idx=0&n=8&mkt=zh-CN";
     private final NetworkRequest requests=new NetworkRequest();
     private final android.content.Context context;
@@ -51,7 +51,8 @@ final class DailyWallpaperClient {
                 if(item.optBoolean("wp",false)){image=item;break;}
             }
             if(image==null)throw new Unavailable();
-            result.url=new URL(new URL("https://cn.bing.com"),image.getString("url")).toString();
+            // The metadata ships a 1080p path; swapping the size token fetches Bing's 4K master of the same photo.
+            result.url=new URL(new URL("https://cn.bing.com"),image.getString("url").replace("1920x1080","UHD")).toString();
             result.title=image.optString("title");result.copyright=image.optString("copyright");result.link=image.optString("copyrightlink");result.upstream=image.optString("fullstartdate",image.optString("startdate"));
         }else throw new IOException("Unknown wallpaper source");
         https(result.url);
