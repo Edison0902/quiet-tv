@@ -26,13 +26,19 @@ final class AppCoverStore {
         }catch(IOException|JSONException e){Log.w("QuietTV","Cover index unavailable; using original artwork");}
         importBundled(context);
     }
-    /** Fork: a bundled hi-res cover in assets/app-covers/<pkg>.png replaces the blurry stock banner. */
+    /** Fork: a bundled hi-res cover in assets/app-covers/<pkg>.png replaces the blurry stock banner.
+     *  A changed stamp.txt re-imports bundled covers over existing ones, so shipping new art reaches
+     *  installed devices on a plain update without pm clear (which would drop user settings). */
     private void importBundled(Context context){
         try{
+            boolean force=false;
+            try{String stamp=new String(readAsset(context,"app-covers/stamp.txt"),Charsets.UTF_8).trim();
+                if(!stamp.isEmpty()&&!stamp.equals(index.optString("coverStamp"))){index.put("coverStamp",stamp);force=true;}
+            }catch(IOException|JSONException missing){/* no stamp file: keep upstream behaviour */}
             for(String name:context.getAssets().list("app-covers")){
                 if(!name.endsWith(".png"))continue;
                 String pkg=name.substring(0,name.length()-4);
-                if(!packageName(pkg)||index.has(pkg))continue;
+                if(!packageName(pkg)||(!force&&index.has(pkg)))continue;
                 File ready=prepared();
                 try(InputStream input=context.getAssets().open("app-covers/"+name);OutputStream output=new FileOutputStream(ready)){
                     byte[] buffer=new byte[4096];int n;while((n=input.read(buffer))>0)output.write(buffer,0,n);
@@ -42,6 +48,11 @@ final class AppCoverStore {
         }catch(IOException e){Log.w("QuietTV","Bundled covers unavailable: "+e);}
     }
     static boolean packageName(String pkg){return pkg!=null&&pkg.matches("[A-Za-z0-9_]+(?:\\.[A-Za-z0-9_]+)+");}
+    private static byte[] readAsset(Context context,String name) throws IOException {
+        InputStream input=context.getAssets().open(name);ByteArrayOutputStream buffer=new ByteArrayOutputStream();
+        try{byte[] chunk=new byte[256];int n;while((n=input.read(chunk))>0)buffer.write(chunk,0,n);}finally{input.close();}
+        return buffer.toByteArray();
+    }
     private void ensureDirectory() throws IOException {
         if(!directory.isDirectory()&&!directory.mkdirs())throw new IOException("无法保存封面，请检查电视存储空间 / Cover storage unavailable");
     }
