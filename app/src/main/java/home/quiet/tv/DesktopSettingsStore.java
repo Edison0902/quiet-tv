@@ -13,7 +13,7 @@ final class DesktopSettingsStore {
         // Capture the old combined setting once, before either independent switch changes.
         if(!preferences.contains("show-date"))preferences.edit().putBoolean("show-date",preferences.getBoolean("show-time",true)).apply();
     }
-    String layout(){return "gallery".equals(preferences.getString("home-layout","classic"))?"gallery":"classic";}
+    String layout(){return "classic".equals(preferences.getString("home-layout","gallery"))?"classic":"gallery";}
     void layout(String layout){if(!"classic".equals(layout)&&!"gallery".equals(layout))throw new IllegalArgumentException("Unknown home layout");preferences.edit().putString("home-layout",layout).apply();DiagnosticLog.info("desktop.layout",layout);}
     boolean showDate(){return preferences.getBoolean("show-date",true);}
     void showDate(boolean show){preferences.edit().putBoolean("show-date",show).apply();DiagnosticLog.info("desktop.setting","show-date="+show);}
