@@ -1,7 +1,6 @@
 package home.quiet.tv;
 
 import android.content.Context;
-import android.content.SharedPreferences;
 import androidx.core.util.AtomicFile;
 import android.util.Log;
 import java.io.*;
@@ -25,32 +24,6 @@ final class AppCoverStore {
         if(indexFile.getBaseFile().exists()||new File(directory,"index.json.bak").exists())try{
             index=new JSONObject(new String(indexFile.readFully(),Charsets.UTF_8));
         }catch(IOException|JSONException e){Log.w("QuietTV","Cover index unavailable; using original artwork");}
-        importBundled(context);
-    }
-    /** A changed stamp re-imports every bundled cover over the old ones - no data wipe needed. */
-    private void importBundled(Context context){
-        try{
-            SharedPreferences stampPrefs=context.getSharedPreferences("app-covers",0);
-            String stamp;
-            try(InputStream input=context.getAssets().open("app-covers/stamp.txt");ByteArrayOutputStream read=new ByteArrayOutputStream()){
-                byte[] buffer=new byte[256];int n;while((n=input.read(buffer))>0)read.write(buffer,0,n);
-                stamp=read.toString("UTF-8").trim();
-            }
-            String seen=stampPrefs.getString("stamp","");
-            boolean reimportAll=!seen.equals(stamp);
-            if(reimportAll)Log.i("QuietTV","Bundled covers stamp "+seen+" -> "+stamp);
-            for(String name:context.getAssets().list("app-covers")){
-                if(!name.endsWith(".png"))continue;
-                String pkg=name.substring(0,name.length()-4);
-                if(!packageName(pkg)||(!reimportAll&&index.has(pkg)))continue;
-                File ready=prepared();
-                try(InputStream input=context.getAssets().open("app-covers/"+name);OutputStream output=new FileOutputStream(ready)){
-                    byte[] buffer=new byte[4096];int n;while((n=input.read(buffer))>0)output.write(buffer,0,n);
-                }
-                apply(pkg,ready);
-            }
-            stampPrefs.edit().putString("stamp",stamp).apply();
-        }catch(IOException e){Log.w("QuietTV","Bundled covers unavailable: "+e);}
     }
     static boolean packageName(String pkg){return pkg!=null&&pkg.matches("[A-Za-z0-9_]+(?:\\.[A-Za-z0-9_]+)+");}
     private void ensureDirectory() throws IOException {
