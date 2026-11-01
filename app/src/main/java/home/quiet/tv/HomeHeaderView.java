@@ -37,7 +37,7 @@ final class HomeHeaderView extends FrameLayout {
         greetingRow=new LinearLayout(context);greetingRow.setGravity(Gravity.CENTER_VERTICAL);greetingRow.setFocusable(false);
         avatar=new GreetingAvatarView(context);greetingRow.addView(avatar,new LinearLayout.LayoutParams(px(28),px(28)));
         greetingRow.addView(greeting,new LinearLayout.LayoutParams(-2,-1));
-        weather=text("",14,400,0xffe6e7ed);weather.setCompoundDrawablePadding(px(6));
+        weather=text("",14,400,0xffe6e7ed);weather.setCompoundDrawablePadding(px(6));weather.setMaxWidth(px(400));
         // The weather line is the header's fourth focus stop: OK opens the weather panel.
         weather.setFocusable(true);weather.setFocusableInTouchMode(true);
         weather.setPadding(px(10),0,px(10),0);
@@ -77,7 +77,7 @@ final class HomeHeaderView extends FrameLayout {
             if(gallery){
                 add(information,greetingRow,-2,28,0);add(information,clock,-1,86,0);add(information,date,-1,22,0);add(information,weather,-2,26,3);
             }else{
-                add(information,intro,-1,28,0);add(intro,greetingRow,-2,-1,0);detach(weather);LinearLayout.LayoutParams wp=new LinearLayout.LayoutParams(0,-1,1);intro.addView(weather,wp);
+                add(information,intro,-1,28,0);add(intro,greetingRow,-2,-1,0);detach(weather);LinearLayout.LayoutParams wp=new LinearLayout.LayoutParams(-2,-2);intro.addView(weather,wp);
                 add(information,timeRow,-1,64,3);add(timeRow,clock,-2,-1,0);add(timeRow,divider,1,28,0);LinearLayout.LayoutParams dp=(LinearLayout.LayoutParams)divider.getLayoutParams();dp.leftMargin=px(16);dp.rightMargin=px(16);
                 detach(date);timeRow.addView(date,new LinearLayout.LayoutParams(0,-1,1));
             }
