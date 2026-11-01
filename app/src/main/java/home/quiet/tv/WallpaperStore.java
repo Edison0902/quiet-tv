@@ -1,7 +1,9 @@
 package home.quiet.tv;
 
 import android.content.Context;
+import android.content.SharedPreferences;
 import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import androidx.core.util.AtomicFile;
 import android.util.Log;
 import org.json.*;
@@ -37,6 +39,36 @@ final class WallpaperStore {
         for(Iterator<WallpaperCatalog.Entry> it=catalog.custom.iterator();it.hasNext();) if(!file(it.next().id).isFile()) it.remove();
         catalog.normalize();
         try{screensavers.initialize(catalog);}catch(IOException e){DiagnosticLog.error("screensaver.load.failed",e);}
+        importBundledWallpaper(context);
+    }
+    /**
+     * Fork: on a fresh catalog the bundled landscape (assets/default-wallpaper.jpg) is imported
+     * and selected, so a wiped TV still opens on a picture. A stamp re-imports it when the asset
+     * changes, but never over a wallpaper the owner has chosen themselves.
+     */
+    private void importBundledWallpaper(Context context){
+        try{
+            String stamp;
+            try(InputStream input=context.getAssets().open("default-wallpaper.stamp");ByteArrayOutputStream read=new ByteArrayOutputStream()){
+                byte[] buffer=new byte[256];int n;while((n=input.read(buffer))>0)read.write(buffer,0,n);
+                stamp=read.toString("UTF-8").trim();
+            }
+            SharedPreferences stampPrefs=context.getSharedPreferences("bundled-wallpaper",0);
+            boolean fresh=catalog.custom.isEmpty()&&WallpaperCatalog.DEFAULT.equals(catalog.current);
+            boolean changed=!stampPrefs.getString("stamp","").equals(stamp);
+            if(!fresh&&!changed)return;
+            if(!fresh&&changed&&(catalog.current.startsWith("user-")||WallpaperCatalog.DAILY.equals(catalog.current)))return;
+            File stage=new File(directory,"incoming-default.jpg");
+            try(InputStream input=context.getAssets().open("default-wallpaper.jpg");OutputStream output=new FileOutputStream(stage)){
+                byte[] buffer=new byte[4096];int n;while((n=input.read(buffer))>0)output.write(buffer,0,n);
+            }
+            android.graphics.BitmapFactory.Options options=new android.graphics.BitmapFactory.Options();options.inJustDecodeBounds=true;
+            BitmapFactory.decodeFile(stage.getPath(),options);
+            WallpaperCatalog.Entry entry=add(stage,"风景",options.outWidth,options.outHeight);
+            select(entry.id);
+            stampPrefs.edit().putString("stamp",stamp).apply();
+            Log.i("QuietTV","Bundled wallpaper imported: "+entry.id);
+        }catch(IOException e){Log.w("QuietTV","Bundled wallpaper unavailable: "+e);}
     }
     synchronized WallpaperCatalog snapshot() { return catalog.copy(); }
     File dailyDirectory() throws IOException {
