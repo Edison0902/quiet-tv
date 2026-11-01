@@ -117,5 +117,9 @@ final class HomeHeaderView extends FrameLayout {
         int left=button.leftMargin+(button.width-label.width)/2;if(label.leftMargin!=left){label.leftMargin=left;buttonLabel.setLayoutParams(label);}
     }
     void updateClock(boolean fixedGreeting){Calendar now=Calendar.getInstance();int hour=now.get(Calendar.HOUR_OF_DAY);String automatic=hour<11?tr("早上好","Good morning"):hour<18?tr("下午好","Good afternoon"):tr("晚上好","Good evening");String custom=settings.greetingText(fixedGreeting?tr("欢迎回家","Welcome home"):"");greeting.setText(custom.isEmpty()?automatic:custom);clock.setText(new SimpleDateFormat("HH:mm",Locale.US).format(now.getTime()));date.setText(new SimpleDateFormat(chinese?"M月d日  EEEE":"EEEE, MMMM d",chinese?Locale.SIMPLIFIED_CHINESE:Locale.US).format(now.getTime()));apply();}
-    void weather(WeatherData data){weatherAvailable=data!=null;if(data==null){weather.setText("");weather.setCompoundDrawables(null,null,null,null);}else{WeatherIcon icon=new WeatherIcon(data.icon);icon.setBounds(0,0,px(18),px(18));weather.setCompoundDrawables(icon,null,null,null);weather.setText(String.format(Locale.ROOT,"%s  %s  %s",data.temperatureText(),data.description,data.city));}apply();}
+    void weather(WeatherData data){weatherAvailable=data!=null;if(data==null){weather.setText("");weather.setCompoundDrawables(null,null,null,null);}else{WeatherIcon icon=new WeatherIcon(data.icon);icon.setBounds(0,0,px(18),px(18));weather.setCompoundDrawables(icon,null,null,null);StringBuilder line=new StringBuilder(data.temperatureText());
+            if(!data.city.isEmpty())line.append("  ").append(data.city);
+            if(!data.description.isEmpty())line.append("  ").append(data.description);
+            if(data.hasRange())line.append("  最高 ").append(data.highText()).append(" 最低 ").append(data.lowText());
+            weather.setText(line.toString());}apply();}
 }

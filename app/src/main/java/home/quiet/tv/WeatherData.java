@@ -16,7 +16,10 @@ final class WeatherData {
     final double temperature,latitude,longitude;
     final String placeCode;
     final long fetchedAt, observedAt;
-    WeatherData(JSONObject json,long fetchedAt,String source)throws JSONException {
+    /** Today's high/low from the daily forecast, NaN when the provider gave none. */
+    final double highC, lowC;
+    WeatherData(JSONObject json,long fetchedAt,String source,double highC,double lowC)throws JSONException {
+        this.highC=highC;this.lowC=lowC;
         city=required(json,"city");province=json.optString("province","");adcode=json.optString("adcode","");
         latitude=json.optDouble("latitude",Double.NaN);longitude=json.optDouble("longitude",Double.NaN);placeCode=json.optString("placeCode",adcode);
         description=required(json,"weather");icon=json.optString("weather_icon","999");temperature=json.getDouble("temperature");
@@ -29,6 +32,7 @@ final class WeatherData {
         latitude=json.optDouble("latitude",Double.NaN);longitude=json.optDouble("longitude",Double.NaN);placeCode=json.optString("placeCode",adcode);
         description=required(json,"weather");icon=json.optString("weather_icon","999");temperature=json.getDouble("temperature");
         if(Double.isNaN(temperature)||Double.isInfinite(temperature))throw new JSONException("Invalid temperature");
+        highC=json.optDouble("high",Double.NaN);lowC=json.optDouble("low",Double.NaN);
         fetchedAt=json.getLong("fetchedAt");observedAt=json.optLong("observedAt",0);locationSource=required(json,"source");provider=json.optString("provider","uapi");
     }
     static WeatherData read(JSONObject json)throws JSONException{return new WeatherData(json);}
@@ -42,10 +46,14 @@ final class WeatherData {
     boolean usable(long now){return age(now)<EXPIRE_MS;}
     boolean stale(long now){return age(now)>=STALE_MS;}
     String temperatureText(){return Math.round(temperature)+"°C";}
+    boolean hasRange(){return !Double.isNaN(highC)&&!Double.isNaN(lowC);}
+    String highText(){return Math.round(highC)+"°";}
+    String lowText(){return Math.round(lowC)+"°";}
     String providerName(){return WeatherClient.providerName(provider);}
     JSONObject json()throws JSONException{
         JSONObject result=new JSONObject().put("city",city).put("province",province).put("adcode",adcode).put("weather",description)
             .put("weather_icon",icon).put("temperature",temperature).put("fetchedAt",fetchedAt).put("observedAt",observedAt).put("source",locationSource).put("provider",provider).put("placeCode",placeCode);
+        if(!Double.isNaN(highC)&&!Double.isNaN(lowC))result.put("high",highC).put("low",lowC);
         if(WeatherRegions.coordinates(latitude,longitude))result.put("latitude",latitude).put("longitude",longitude);return result;
     }
     static long reportTime(String text,long received){

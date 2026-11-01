@@ -1,6 +1,13 @@
 {
-  "language": "zh",
-  "greeting": "time",
-  "dock": ["com.trim.tv", "com.xiaodianshi.tv.yst", "top.yogiczy.slcs.tv", "com.xunlei.downloadprovider.hd"],
-  "hidden": ["com.dangbei.TVHomeLauncher", "com.android.tv.settings", "com.sony.dtv.settings"]
+ "language": "zh",
+ "greeting": "time",
+ "dock": [
+  "com.gitvdemo.video",
+  "com.ktcp.video"
+ ],
+ "hidden": [
+  "com.dangbei.TVHomeLauncher",
+  "com.android.tv.settings",
+  "com.sony.dtv.settings"
+ ]
 }

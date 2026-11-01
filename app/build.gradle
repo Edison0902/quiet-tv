@@ -122,7 +122,7 @@ tasks.register('bundleAbout', Exec) {
     inputs.files('../scripts/bundle_about.py', '../LICENSE', '../THIRD_PARTY_NOTICES.md')
     inputs.files(fileTree('src/main/assets/fonts'), fileTree('src/main/assets/licenses'))
     outputs.dir(aboutAssets)
-    commandLine 'python3', file('../scripts/bundle_about.py'), aboutAssets.get().dir('about').asFile
+    commandLine 'python', file('../scripts/bundle_about.py'), aboutAssets.get().dir('about').asFile
 }
 tasks.named('preBuild').configure { dependsOn 'bundleAbout' }
 
