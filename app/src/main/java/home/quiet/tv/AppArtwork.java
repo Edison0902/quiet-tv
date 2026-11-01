@@ -50,7 +50,7 @@ final class AppArtwork {
     static Bitmap render(Drawable art,boolean banner){return render(art,banner,WIDTH);}
     private static Bitmap render(Drawable art,boolean banner,int outputWidth){
         float ratio=outputWidth/(float)WIDTH;int outputHeight=Math.round(HEIGHT*ratio);
-        int limitWidth=banner?outputWidth:Math.round(108*ratio),limitHeight=banner?outputHeight:Math.round(108*ratio);
+        int limitWidth=banner?outputWidth:Math.round(150*ratio),limitHeight=banner?outputHeight:Math.round(150*ratio);
         int nativeWidth=art==null?1:Math.max(1,art.getIntrinsicWidth()),nativeHeight=art==null?1:Math.max(1,art.getIntrinsicHeight());
         int width=nativeWidth,height=nativeHeight;
         float scale=Math.min(limitWidth/(float)width,limitHeight/(float)height);
@@ -60,7 +60,9 @@ final class AppArtwork {
         // Scale their original coordinate space instead, without allocating a full-size bitmap.
         if(art!=null){Rect bounds=new Rect(art.getBounds());try{Canvas drawing=new Canvas(source);drawing.scale(width/(float)nativeWidth,height/(float)nativeHeight);art.setBounds(0,0,nativeWidth,nativeHeight);art.draw(drawing);}finally{art.setBounds(bounds);}}
         Bitmap result=Bitmap.createBitmap(outputWidth,outputHeight,Bitmap.Config.ARGB_8888);Canvas canvas=new Canvas(result);
-        canvas.drawColor(background(source,banner));
+        // Apps with a TV banner fill the tile with it; apps with only an icon sit large on white -
+        // one uniform tile language, matching the dock's covers.
+        canvas.drawColor(banner?background(source,true):0xFFFBFBFB);
         canvas.drawBitmap(source,(outputWidth-width)/2f,(outputHeight-height)/2f,new Paint(Paint.ANTI_ALIAS_FLAG|Paint.FILTER_BITMAP_FLAG));
         source.recycle();return result;
     }
