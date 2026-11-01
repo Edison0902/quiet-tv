@@ -13,12 +13,12 @@ final class AppArtwork {
 
     static Bitmap load(Context context,ResolveInfo info){
         Bitmap custom=custom(context,info.activityInfo.packageName);if(custom!=null)return custom;
-        PackageManager pm=context.getPackageManager();Drawable banner=null;
+        PackageManager pm=context.getPackageManager();
+        // Every tile speaks the dock's language: the app icon large on white, no banners.
         ActivityInfo activity=info.activityInfo;
-        if(Build.VERSION.SDK_INT>=21){banner=resource(pm,activity.applicationInfo,activity.getBannerResource());if(banner==null)banner=activity.loadBanner(pm);}
-        Drawable art=banner!=null?banner:resource(pm,activity.applicationInfo,activity.getIconResource());
+        Drawable art=resource(pm,activity.applicationInfo,activity.getIconResource());
         if(art==null)art=info.loadIcon(pm);
-        return render(art!=null?art:UiCompat.drawable(context,R.drawable.ic_manage_apps),banner!=null,width(context));
+        return render(art!=null?art:UiCompat.drawable(context,R.drawable.ic_manage_apps),false,width(context));
     }
 
     static Bitmap load(Context context,String pkg,ApplicationInfo info){
