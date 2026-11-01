@@ -3,7 +3,8 @@
  "greeting": "time",
  "dock": [
   "com.gitvdemo.video",
-  "com.ktcp.video"
+  "com.ktcp.video",
+  "rocks.aston.hongguotv"
  ],
  "hidden": [
   "com.dangbei.TVHomeLauncher",
