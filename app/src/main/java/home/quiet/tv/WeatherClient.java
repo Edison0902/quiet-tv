@@ -130,7 +130,7 @@ final class WeatherClient {
     private WeatherData qweatherWeather(WeatherRegions.Region place,WeatherRegions.Region point,String source,boolean chinese)throws IOException,JSONException{
         JSONObject response=get("qweather",String.format(Locale.US,"/weather/v1/current/%.2f/%.2f?lang=%s",point.latitude,point.longitude,chinese?"zh":"en"));
         JSONObject temperature=response.getJSONObject("temperature");if(!"°C".equals(temperature.getString("unit")))throw new JSONException("Unexpected temperature unit");
-        return new WeatherData(normalized(place,"qweather").put("weather",response.getJSONObject("condition").getString("text")).put("weather_icon",response.getJSONObject("condition").getString("code")).put("temperature",temperature.getDouble("value")),System.currentTimeMillis(),source,Double.NaN,Double.NaN);
+        return new WeatherData(normalized(place,"qweather").put("weather",response.getJSONObject("condition").getString("text")).put("weather_icon",response.getJSONObject("condition").getString("code")).put("temperature",temperature.getDouble("value")),System.currentTimeMillis(),source,Double.NaN,Double.NaN,null);
     }
     private WeatherData uapiCoordinates(WeatherRegions.Region point,String source,boolean chinese)throws IOException,JSONException{
         for(WeatherRegions.Region candidate:districts("lat="+decimal(point.latitude)+"&lng="+decimal(point.longitude)+"&country=CN&limit=5"))if(!candidate.adcode.isEmpty())return uapiWeather(candidate,source,chinese);
@@ -143,23 +143,44 @@ final class WeatherClient {
         if(!adcode.isEmpty()&&!adcode.equals(response.optString("adcode")))throw new JSONException("Weather region mismatch");
         response.put("provider","uapi");String district=response.optString("district","");if(!district.isEmpty())response.put("city",district);
         if(place!=null){response.put("city",place.name).put("placeCode",place.code);if(place.located())response.put("latitude",place.latitude).put("longitude",place.longitude);}
-        return new WeatherData(response,System.currentTimeMillis(),source,Double.NaN,Double.NaN);
+        return new WeatherData(response,System.currentTimeMillis(),source,Double.NaN,Double.NaN,null);
     }
     private WeatherData openMeteo(WeatherRegions.Region place,String source,boolean chinese)throws IOException,JSONException{
-        JSONObject response=get("openmeteo","/v1/forecast?latitude="+decimal(place.latitude)+"&longitude="+decimal(place.longitude)+"&current=temperature_2m,weather_code,is_day&daily=temperature_2m_max,temperature_2m_min&temperature_unit=celsius&timeformat=unixtime&forecast_days=1&cell_selection=nearest");
+        JSONObject response=get("openmeteo","/v1/forecast?latitude="+decimal(place.latitude)+"&longitude="+decimal(place.longitude)+"&current=temperature_2m,weather_code,is_day&daily=temperature_2m_max,temperature_2m_min&hourly=temperature_2m,precipitation_probability&temperature_unit=celsius&timeformat=unixtime&forecast_days=2&cell_selection=nearest");
         checkPosition(response,"latitude","longitude",place);
         JSONObject current=response.getJSONObject("current"),units=response.getJSONObject("current_units");if(!"°C".equals(units.getString("temperature_2m")))throw new JSONException("Unexpected temperature unit");
         String[] condition=meteoCondition(current.getInt("weather_code"),current.getInt("is_day")==1,chinese);
         JSONObject daily=response.optJSONObject("daily");
         double high=daily==null?Double.NaN:daily.getJSONArray("temperature_2m_max").getDouble(0);
         double low=daily==null?Double.NaN:daily.getJSONArray("temperature_2m_min").getDouble(0);
-        return new WeatherData(normalized(place,"openmeteo").put("weather",condition[0]).put("weather_icon",condition[1]).put("temperature",current.getDouble("temperature_2m")).put("observedAt",current.getLong("time")*1000L),System.currentTimeMillis(),source,high,low);
+        return new WeatherData(normalized(place,"openmeteo").put("weather",condition[0]).put("weather_icon",condition[1]).put("temperature",current.getDouble("temperature_2m")).put("observedAt",current.getLong("time")*1000L),System.currentTimeMillis(),source,high,low,meteoHourly(response));
+    }
+    /** The window the home curve draws: this local hour plus 23 more, in the city's own hours. */
+    private static WeatherData.Hourly meteoHourly(JSONObject response)throws JSONException{
+        JSONObject hourly=response.optJSONObject("hourly");if(hourly==null)return null;
+        org.json.JSONArray times=hourly.optJSONArray("time"),temps=hourly.optJSONArray("temperature_2m"),pops=hourly.optJSONArray("precipitation_probability");
+        if(times==null||temps==null)return null;
+        // timeformat=unixtime returns the city's wall-clock hours encoded as UTC
+        // (utc_offset_seconds reads 0); the device shares the city's timezone, so its
+        // local epoch lands in that same encoded space.
+        long shifted=System.currentTimeMillis()/1000L+java.util.TimeZone.getDefault().getRawOffset()/1000L;
+        long hourNow=shifted-((shifted%3600L+3600L)%3600L);
+        int start=0;while(start<times.length()&&times.optLong(start,Long.MAX_VALUE)<hourNow)start++;
+        int count=Math.min(24,times.length()-start);
+        long[] at=null;float[] values=null;int[] chances=null;int valid=0;
+        for(int i=0;i<count;i++){
+            double value=temps.optDouble(start+i,Double.NaN);if(Double.isNaN(value))break;
+            if(at==null){at=new long[count];values=new float[count];chances=new int[count];}
+            at[valid]=times.optLong(start+i);values[valid]=(float)value;chances[valid]=pops==null?-1:pops.optInt(start+i,-1);valid++;
+        }
+        if(valid<3)return null;
+        return new WeatherData.Hourly(0,java.util.Arrays.copyOf(at,valid),java.util.Arrays.copyOf(values,valid),java.util.Arrays.copyOf(chances,valid));
     }
     private WeatherData openWeather(WeatherRegions.Region place,String source,boolean chinese)throws IOException,JSONException{
         JSONObject response=get("openweather","/data/2.5/weather?lat="+decimal(place.latitude)+"&lon="+decimal(place.longitude)+"&units=metric&lang="+(chinese?"zh_cn":"en"));
         checkPosition(response.getJSONObject("coord"),"lat","lon",place);
         JSONObject condition=response.getJSONArray("weather").getJSONObject(0);int id=condition.getInt("id");String icon=id>=200&&id<300?"302":id>=300&&id<600?"305":id>=600&&id<700?"400":id>=700&&id<800?"501":id==800?(condition.optString("icon").endsWith("n")?"150":"100"):id>800&&id<900?"101":"999";
-        return new WeatherData(normalized(place,"openweather").put("weather",condition.getString("description")).put("weather_icon",icon).put("temperature",response.getJSONObject("main").getDouble("temp")).put("observedAt",response.getLong("dt")*1000L),System.currentTimeMillis(),source,Double.NaN,Double.NaN);
+        return new WeatherData(normalized(place,"openweather").put("weather",condition.getString("description")).put("weather_icon",icon).put("temperature",response.getJSONObject("main").getDouble("temp")).put("observedAt",response.getLong("dt")*1000L),System.currentTimeMillis(),source,Double.NaN,Double.NaN,null);
     }
     private static void checkPosition(JSONObject point,String latKey,String lonKey,WeatherRegions.Region selected)throws JSONException{
         double lat=point.getDouble(latKey),lon=point.getDouble(lonKey);

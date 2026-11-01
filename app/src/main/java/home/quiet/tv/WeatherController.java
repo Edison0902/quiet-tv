@@ -75,9 +75,11 @@ final class WeatherController {
                     :client.locatedWeather(location.getLatitude(),location.getLongitude(),store.provider(),store.meteoFallback(),chinese);
                 main.post(()->{if(!accept(version,selected))return;loading=false;data=result;
                     if(resolved!=null&&resolved.located()){store.select(resolved);key=store.key(chinese);}
-                    store.save(chinese,result);nextAttempt=0;rateLimited=false;error="";render();schedule(WeatherData.REFRESH_MS);});
+                    store.save(chinese,result);nextAttempt=0;rateLimited=false;error="";render();schedule(WeatherData.REFRESH_MS);
+                    android.util.Log.i("QuietTV","Weather fetched provider="+result.provider+" hourly="+(result.hourly==null?"none":result.hourly.at.length));});
             }catch(java.io.IOException|org.json.JSONException e){
                 DiagnosticLog.error("weather.refresh.failed",e);
+                android.util.Log.i("QuietTV","Weather failed "+e.getClass().getSimpleName()+": "+e.getMessage());
                 main.post(()->{
                     if(!accept(version,selected))return;loading=false;
                     long delay=5*60*1000L;

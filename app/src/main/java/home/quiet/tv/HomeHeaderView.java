@@ -38,6 +38,10 @@ final class HomeHeaderView extends FrameLayout {
         avatar=new GreetingAvatarView(context);greetingRow.addView(avatar,new LinearLayout.LayoutParams(px(28),px(28)));
         greetingRow.addView(greeting,new LinearLayout.LayoutParams(-2,-1));
         weather=text("",14,400,0xffe6e7ed);weather.setCompoundDrawablePadding(px(6));
+        // The weather line is the header's fourth focus stop: OK opens the weather panel.
+        weather.setFocusable(true);weather.setFocusableInTouchMode(true);
+        weather.setPadding(px(10),0,px(10),0);
+        weather.setOnFocusChangeListener((v,focused)->weather.setBackgroundDrawable(focused?pillSurface(unit):null));
         clock=text("",50,400,0xfff1f2f6);clock.setTypeface(Typeface.create("sans-serif",Typeface.NORMAL));if(Build.VERSION.SDK_INT>=21)clock.setFontFeatureSettings("tnum");
         date=text("",14,500,0xffe6e7ed);UiCompat.letterSpacing(date,.08f);
         divider=new View(context);divider.setBackgroundColor(0x70e6e7ed);

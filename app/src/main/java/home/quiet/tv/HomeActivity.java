@@ -49,6 +49,9 @@ public final class HomeActivity extends androidx.activity.ComponentActivity {
     private final HashMap<String,Tile> visibleTiles = new HashMap<>();
     private final ArrayList<TextView> pills = new ArrayList<>();
     private final ArrayList<TextView> visiblePills = new ArrayList<>();
+    private WeatherData weatherData;
+    private KeyFeedback.Popup weatherPopup;
+    private WeatherCurveView weatherCurve;
     private final HashMap<String,App> artworkCache = new HashMap<>();
     private final HomeCatalogRefresh catalogRefresh=new HomeCatalogRefresh();
     private long packageRevision;
@@ -273,7 +276,10 @@ public final class HomeActivity extends androidx.activity.ComponentActivity {
         inputButton.setOnClickListener(v->KeyFeedback.clicked(v,this::showInputs));network.setOnClickListener(v->KeyFeedback.clicked(v,()->openSettings(Settings.ACTION_WIFI_SETTINGS)));pills.get(2).setOnClickListener(v->KeyFeedback.clicked(v,()->openSettings(Settings.ACTION_SETTINGS)));
         pills.get(2).setOnLongClickListener(v->{showSettingsTest(Settings.ACTION_SETTINGS);return true;});
         network.setOnLongClickListener(v->{showSettingsTest(Settings.ACTION_WIFI_SETTINGS);return true;});
-        weather=new WeatherController(this,chinese,(data,message,loading)->{homeHeader.weather(data);if(screensaver!=null)screensaver.weatherChanged(data);});
+        weather=new WeatherController(this,chinese,(data,message,loading)->{weatherData=data;homeHeader.weather(data);updateHeaderFocus();
+            if(weatherPopup!=null&&weatherPopup.isShowing()&&weatherCurve!=null&&data!=null)weatherCurve.setData(data.hourly);
+            if(screensaver!=null)screensaver.weatherChanged(data);});
+        weatherText.setOnClickListener(v->KeyFeedback.clicked(v,this::showWeatherPanel));
         appAdapter=new AppAdapter();list.setAdapter(appAdapter);
         applyDesktopSettings();updateClock(); updateNetwork();
         screensaver=new ScreensaverController(this,root,wallpapers,unit,chinese,new ScreensaverController.Host(){
@@ -292,18 +298,7 @@ public final class HomeActivity extends androidx.activity.ComponentActivity {
         if(homeAppsVisible!=showApps){homeAppsVisible=showApps;row=0;column=0;activePackage="";}
         if(heroTitle!=null)heroTitle.setVisibility(homeAppsVisible&&desktopSettings.showAppTitle()?View.VISIBLE:View.GONE);
         applyDockAppearance();
-        TextView previous=visiblePills.isEmpty()?null:visiblePills.get(topColumn);
-        boolean[] shown={desktopSettings.showInput(),desktopSettings.showNetwork(),desktopSettings.showSettings()};
-        visiblePills.clear();
-        for(int i=0;i<pills.size();i++){
-            TextView pill=pills.get(i);pill.setVisibility(shown[i]?View.VISIBLE:View.GONE);
-            if(shown[i])visiblePills.add(pill);
-        }
-        int restored=visiblePills.indexOf(previous);
-        topColumn=restored>=0?restored:Math.max(0,Math.min(topColumn,visiblePills.size()-1));
-        rightButtonsVisible=!visiblePills.isEmpty();
-        topButtons.setVisibility(rightButtonsVisible?View.VISIBLE:View.GONE);
-        if(!rightButtonsVisible && row<0){row=0;column=Math.min(restoreColumn,maxColumn(0));}
+        rebuildTopRow(visiblePills.isEmpty()?null:visiblePills.get(topColumn));
         if(ready)focusCurrent(false);
     }
 
@@ -650,6 +645,7 @@ public final class HomeActivity extends androidx.activity.ComponentActivity {
     public void handleBack(){
         cancelInputWork();
         cancelConfirm();
+        if(weatherPopup!=null&&weatherPopup.isShowing()){weatherPopup.closeQuietly();return;}
         if(screensaver!=null&&screensaver.showing()){screensaver.key(new KeyEvent(KeyEvent.ACTION_DOWN,KeyEvent.KEYCODE_BACK));return;}
         if(moveSaving)return;
         if(!movingPackage.isEmpty()){cancelMove();KeyFeedback.returned(this);return;}
@@ -809,7 +805,35 @@ public final class HomeActivity extends androidx.activity.ComponentActivity {
         return super.dispatchKeyEvent(event);
     }
 
-    private boolean screensaverAllowed(){return ready&&resumed&&!moveSaving&&movingPackage.isEmpty()&&hasWindowFocus()&&!isFinishing()&&wallpapers!=null&&!wallpapers.pickerShowing()&&(inputPopup==null||!inputPopup.isShowing())&&!(getCurrentFocus() instanceof EditText);}
+    /** The weather panel: place, condition, the day's range and the next 24 hours as a curve. */
+    private void showWeatherPanel(){
+        Log.i(TAG,"Weather panel requested data="+(weatherData!=null)+" popup="+(weatherPopup!=null));
+        if(weatherData==null)return;
+        if(weatherPopup!=null&&weatherPopup.isShowing()){weatherPopup.closeQuietly();return;}
+        LinearLayout card=new LinearLayout(this);card.setOrientation(LinearLayout.VERTICAL);card.setPadding(px(20),px(14),px(20),px(10));
+        card.setBackgroundDrawable(surface(0xfa25262e,18));
+        LinearLayout head=new LinearLayout(this);head.setGravity(Gravity.CENTER_VERTICAL);
+        WeatherIcon icon=new WeatherIcon(weatherData.icon);icon.setBounds(0,0,px(24),px(24));
+        TextView place=text("",15,600,0xfff1f2f6);place.setCompoundDrawables(icon,null,null,null);place.setCompoundDrawablePadding(px(8));
+        place.setText(weatherData.city.isEmpty()?weatherData.description:weatherData.city+"  "+weatherData.description);
+        TextView temp=text(weatherData.temperatureText(),30,400,0xfff1f2f6);temp.setTypeface(Typeface.create("sans-serif-light",Typeface.NORMAL));
+        head.addView(place,new LinearLayout.LayoutParams(0,-2,1));head.addView(temp,new LinearLayout.LayoutParams(-2,-2));
+        card.addView(head,new LinearLayout.LayoutParams(-1,-2));
+        TextView range=text("",12,400,0xffb0b4be);range.setPadding(0,px(3),0,0);
+        range.setText(weatherData.hasRange()?tr("最高 ","High ")+weatherData.highText()+tr("  最低 ","  Low ")+weatherData.lowText():"");
+        card.addView(range,new LinearLayout.LayoutParams(-1,-2));
+        weatherCurve=new WeatherCurveView(this,unit,chinese);weatherCurve.setData(weatherData.hourly);
+        card.addView(weatherCurve,new LinearLayout.LayoutParams(-1,px(196)));
+        weatherPopup=new KeyFeedback.Popup(this,card,px(440),-2);
+        weatherPopup.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));weatherPopup.setElevation(px(14));weatherPopup.setOutsideTouchable(true);
+        weatherPopup.setOnDismissListener(()->main.post(()->{weatherPopup=null;weatherCurve=null;if(resumed&&!UiCompat.destroyed(this))updateHeaderFocus();}));
+        card.setFocusable(true);card.setFocusableInTouchMode(true);
+        card.setOnKeyListener((v,key,event)->{
+            if(event.getAction()==KeyEvent.ACTION_DOWN&&(key==KeyEvent.KEYCODE_DPAD_CENTER||key==KeyEvent.KEYCODE_ENTER||key==KeyEvent.KEYCODE_NUMPAD_ENTER)){weatherPopup.closeQuietly();return true;}return false;});
+        weatherPopup.showAsDropDown(weatherText,0,px(4));
+        card.requestFocus();Log.i(TAG,"Weather panel shown");
+    }
+    private boolean screensaverAllowed(){return ready&&resumed&&!moveSaving&&movingPackage.isEmpty()&&hasWindowFocus()&&!isFinishing()&&wallpapers!=null&&!wallpapers.pickerShowing()&&(inputPopup==null||!inputPopup.isShowing())&&(weatherPopup==null||!weatherPopup.isShowing())&&!(getCurrentFocus() instanceof EditText);}
     private String confirmFocus(){App app=currentApp();return row+":"+column+":"+topColumn+":"+(app==null?"":app.pkg);}
     private void cancelConfirm(){main.removeCallbacks(confirmHold);heldPackage="";if(pendingConfirm!=null)main.removeCallbacks(pendingConfirm);pendingConfirm=null;pendingConfirmFocus="";confirmGesture.cancel();}
     private void focusCurrent(boolean animate) {
@@ -981,9 +1005,28 @@ public final class HomeActivity extends androidx.activity.ComponentActivity {
 
     private void updateHeaderFocus() {
         if(!ready)return;
+        rebuildTopRow(visiblePills.isEmpty()?null:visiblePills.get(topColumn));
         View header=layout.findViewByPosition(0);boolean visible=row<0 && header!=null && header.getTop()==0;
         homeHeader.focusButton(visible&&!visiblePills.isEmpty()?pills.indexOf(visiblePills.get(topColumn)):-1);
         for(TextView pill:pills){boolean focused=visible && visiblePills.indexOf(pill)==topColumn;pill.setActivated(focused);if(!focused)pill.setPressed(false);}
+        boolean weatherFocused=visible&&!visiblePills.isEmpty()&&visiblePills.get(Math.min(topColumn,visiblePills.size()-1))==weatherText;
+        weatherText.setBackgroundDrawable(weatherFocused?HomeHeaderView.pillSurface(unit):null);
+    }
+
+    /** The top focus row: the weather line leads, then the header pills. */
+    private void rebuildTopRow(TextView previous){
+        boolean[] shown={desktopSettings.showInput(),desktopSettings.showNetwork(),desktopSettings.showSettings()};
+        visiblePills.clear();
+        if(weatherData!=null&&weatherText.getVisibility()==View.VISIBLE)visiblePills.add(weatherText);
+        for(int i=0;i<pills.size();i++){
+            TextView pill=pills.get(i);pill.setVisibility(shown[i]?View.VISIBLE:View.GONE);
+            if(shown[i])visiblePills.add(pill);
+        }
+        int restored=visiblePills.indexOf(previous);
+        topColumn=restored>=0?restored:Math.max(0,Math.min(topColumn,visiblePills.size()-1));
+        rightButtonsVisible=!visiblePills.isEmpty();
+        topButtons.setVisibility(rightButtonsVisible?View.VISIBLE:View.GONE);
+        if(!rightButtonsVisible&&row<0){row=0;column=Math.min(restoreColumn,maxColumn(0));}
     }
 
     private void applyDockAppearance(){

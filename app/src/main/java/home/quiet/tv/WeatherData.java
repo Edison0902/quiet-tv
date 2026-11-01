@@ -18,8 +18,14 @@ final class WeatherData {
     final long fetchedAt, observedAt;
     /** Today's high/low from the daily forecast, NaN when the provider gave none. */
     final double highC, lowC;
-    WeatherData(JSONObject json,long fetchedAt,String source,double highC,double lowC)throws JSONException {
-        this.highC=highC;this.lowC=lowC;
+    /** The next 24 hours for the home curve, UTC epoch seconds aligned to the city's local hours; null when the provider gave none. */
+    final Hourly hourly;
+    static final class Hourly {
+        final long offsetSec;final long[] at;final float[] temps;final int[] pop;
+        Hourly(long offsetSec,long[] at,float[] temps,int[] pop){this.offsetSec=offsetSec;this.at=at;this.temps=temps;this.pop=pop;}
+    }
+    WeatherData(JSONObject json,long fetchedAt,String source,double highC,double lowC,Hourly hourly)throws JSONException {
+        this.highC=highC;this.lowC=lowC;this.hourly=hourly;
         city=required(json,"city");province=json.optString("province","");adcode=json.optString("adcode","");
         latitude=json.optDouble("latitude",Double.NaN);longitude=json.optDouble("longitude",Double.NaN);placeCode=json.optString("placeCode",adcode);
         description=required(json,"weather");icon=json.optString("weather_icon","999");temperature=json.getDouble("temperature");
@@ -33,7 +39,24 @@ final class WeatherData {
         description=required(json,"weather");icon=json.optString("weather_icon","999");temperature=json.getDouble("temperature");
         if(Double.isNaN(temperature)||Double.isInfinite(temperature))throw new JSONException("Invalid temperature");
         highC=json.optDouble("high",Double.NaN);lowC=json.optDouble("low",Double.NaN);
+        hourly=parseHourly(json.optJSONObject("hourly"));
         fetchedAt=json.getLong("fetchedAt");observedAt=json.optLong("observedAt",0);locationSource=required(json,"source");provider=json.optString("provider","uapi");
+    }
+    static Hourly parseHourly(JSONObject saved){
+        if(saved==null)return null;
+        try{
+            org.json.JSONArray at=saved.getJSONArray("at"),temps=saved.getJSONArray("t"),pop=saved.optJSONArray("p");
+            int count=Math.min(at.length(),temps.length());if(count<3)return null;
+            long[] hours=new long[count];float[] values=new float[count];int[] chances=new int[count];
+            for(int i=0;i<count;i++){
+                hours[i]=at.getLong(i);values[i]=(float)temps.getDouble(i);chances[i]=pop==null?-1:pop.optInt(i,-1);
+                if(Float.isNaN(values[i])){count=i;break;}
+            }
+            if(count<3)return null;
+            long[] at2=new long[count];float[] t2=new float[count];int[] p2=new int[count];
+            System.arraycopy(hours,0,at2,0,count);System.arraycopy(values,0,t2,0,count);System.arraycopy(chances,0,p2,0,count);
+            return new Hourly(saved.optLong("offset",0),at2,t2,p2);
+        }catch(JSONException e){return null;}
     }
     static WeatherData read(JSONObject json)throws JSONException{return new WeatherData(json);}
     private static String required(JSONObject json,String key)throws JSONException{
@@ -54,6 +77,11 @@ final class WeatherData {
         JSONObject result=new JSONObject().put("city",city).put("province",province).put("adcode",adcode).put("weather",description)
             .put("weather_icon",icon).put("temperature",temperature).put("fetchedAt",fetchedAt).put("observedAt",observedAt).put("source",locationSource).put("provider",provider).put("placeCode",placeCode);
         if(!Double.isNaN(highC)&&!Double.isNaN(lowC))result.put("high",highC).put("low",lowC);
+        if(hourly!=null){
+            org.json.JSONArray at=new org.json.JSONArray(),temps=new org.json.JSONArray(),pop=new org.json.JSONArray();
+            for(int i=0;i<hourly.at.length;i++){at.put(hourly.at[i]);temps.put((double)hourly.temps[i]);pop.put(hourly.pop[i]);}
+            result.put("hourly",new JSONObject().put("offset",hourly.offsetSec).put("at",at).put("t",temps).put("p",pop));
+        }
         if(WeatherRegions.coordinates(latitude,longitude))result.put("latitude",latitude).put("longitude",longitude);return result;
     }
     static long reportTime(String text,long received){
