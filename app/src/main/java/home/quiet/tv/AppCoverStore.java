@@ -24,6 +24,22 @@ final class AppCoverStore {
         if(indexFile.getBaseFile().exists()||new File(directory,"index.json.bak").exists())try{
             index=new JSONObject(new String(indexFile.readFully(),Charsets.UTF_8));
         }catch(IOException|JSONException e){Log.w("QuietTV","Cover index unavailable; using original artwork");}
+        importBundled(context);
+    }
+    /** Fork: a bundled hi-res cover in assets/app-covers/<pkg>.png replaces the blurry stock banner. */
+    private void importBundled(Context context){
+        try{
+            for(String name:context.getAssets().list("app-covers")){
+                if(!name.endsWith(".png"))continue;
+                String pkg=name.substring(0,name.length()-4);
+                if(!packageName(pkg)||index.has(pkg))continue;
+                File ready=prepared();
+                try(InputStream input=context.getAssets().open("app-covers/"+name);OutputStream output=new FileOutputStream(ready)){
+                    byte[] buffer=new byte[4096];int n;while((n=input.read(buffer))>0)output.write(buffer,0,n);
+                }
+                apply(pkg,ready);
+            }
+        }catch(IOException e){Log.w("QuietTV","Bundled covers unavailable: "+e);}
     }
     static boolean packageName(String pkg){return pkg!=null&&pkg.matches("[A-Za-z0-9_]+(?:\\.[A-Za-z0-9_]+)+");}
     private void ensureDirectory() throws IOException {
