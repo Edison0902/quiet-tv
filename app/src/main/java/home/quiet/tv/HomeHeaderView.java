@@ -44,6 +44,10 @@ final class HomeHeaderView extends FrameLayout {
         weather.setOnFocusChangeListener((v,focused)->weather.setBackgroundDrawable(focused?pillSurface(unit):null));
         clock=text("",50,400,0xfff1f2f6);clock.setTypeface(Typeface.create("sans-serif",Typeface.NORMAL));if(Build.VERSION.SDK_INT>=21)clock.setFontFeatureSettings("tnum");
         date=text("",14,500,0xffe6e7ed);UiCompat.letterSpacing(date,.08f);
+        // The date line is the header's focus stop after the weather: OK opens the calendar panel.
+        date.setFocusable(true);date.setFocusableInTouchMode(true);
+        date.setPadding(Math.round(10*unit),0,Math.round(10*unit),0);
+        date.setOnFocusChangeListener((v,focused)->date.setBackgroundDrawable(focused?pillSurface(unit):null));
         divider=new View(context);divider.setBackgroundColor(0x70e6e7ed);
         buttons=new FrameLayout(context);buttons.setClipChildren(false);buttons.setClipToPadding(false);place(buttons,132,36,780,67);
         String[] titles={tr("信号源","Inputs"),tr("网络","Network"),tr("设置","Settings")};int[] icons={R.drawable.ic_input,R.drawable.ic_ethernet,R.drawable.ic_settings};
@@ -79,7 +83,7 @@ final class HomeHeaderView extends FrameLayout {
             }else{
                 add(information,intro,-1,28,0);add(intro,greetingRow,-2,-1,0);detach(weather);LinearLayout.LayoutParams wp=new LinearLayout.LayoutParams(-2,-2);intro.addView(weather,wp);
                 add(information,timeRow,-1,64,3);add(timeRow,clock,-2,-1,0);add(timeRow,divider,1,28,0);LinearLayout.LayoutParams dp=(LinearLayout.LayoutParams)divider.getLayoutParams();dp.leftMargin=px(16);dp.rightMargin=px(16);
-                detach(date);timeRow.addView(date,new LinearLayout.LayoutParams(0,-1,1));
+                detach(date);timeRow.addView(date,new LinearLayout.LayoutParams(-2,-2));
             }
             arranged=settings.layout();
         }

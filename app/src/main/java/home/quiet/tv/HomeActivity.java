@@ -52,6 +52,9 @@ public final class HomeActivity extends androidx.activity.ComponentActivity {
     private WeatherData weatherData;
     private KeyFeedback.Popup weatherPopup;
     private WeatherCurveView weatherCurve;
+    private final BirthdayStore birthdays=BirthdayStore.get(this);
+    private KeyFeedback.Popup calendarPopup;
+    private CalendarPanel calendarPanel;
     private final HashMap<String,App> artworkCache = new HashMap<>();
     private final HomeCatalogRefresh catalogRefresh=new HomeCatalogRefresh();
     private long packageRevision;
@@ -280,6 +283,7 @@ public final class HomeActivity extends androidx.activity.ComponentActivity {
             if(weatherPopup!=null&&weatherPopup.isShowing()&&weatherCurve!=null&&data!=null)weatherCurve.setData(data.hourly);
             if(screensaver!=null)screensaver.weatherChanged(data);});
         weatherText.setOnClickListener(v->KeyFeedback.clicked(v,this::showWeatherPanel));
+        date.setOnClickListener(v->KeyFeedback.clicked(v,this::showCalendarPanel));
         appAdapter=new AppAdapter();list.setAdapter(appAdapter);
         applyDesktopSettings();updateClock(); updateNetwork();
         screensaver=new ScreensaverController(this,root,wallpapers,unit,chinese,new ScreensaverController.Host(){
@@ -646,6 +650,7 @@ public final class HomeActivity extends androidx.activity.ComponentActivity {
         cancelInputWork();
         cancelConfirm();
         if(weatherPopup!=null&&weatherPopup.isShowing()){weatherPopup.closeQuietly();return;}
+        if(calendarPopup!=null&&calendarPopup.isShowing()){calendarPopup.closeQuietly();return;}
         if(screensaver!=null&&screensaver.showing()){screensaver.key(new KeyEvent(KeyEvent.ACTION_DOWN,KeyEvent.KEYCODE_BACK));return;}
         if(moveSaving)return;
         if(!movingPackage.isEmpty()){cancelMove();KeyFeedback.returned(this);return;}
@@ -833,7 +838,28 @@ public final class HomeActivity extends androidx.activity.ComponentActivity {
         weatherPopup.showAsDropDown(weatherText,0,px(4));
         card.requestFocus();Log.i(TAG,"Weather panel shown");
     }
-    private boolean screensaverAllowed(){return ready&&resumed&&!moveSaving&&movingPackage.isEmpty()&&hasWindowFocus()&&!isFinishing()&&wallpapers!=null&&!wallpapers.pickerShowing()&&(inputPopup==null||!inputPopup.isShowing())&&(weatherPopup==null||!weatherPopup.isShowing())&&!(getCurrentFocus() instanceof EditText);}
+    /** The calendar panel: this month's grid with birthday dots, beside the upcoming entries. */
+    private void showCalendarPanel(){
+        Log.i(TAG,"Calendar panel requested popup="+(calendarPopup!=null));
+        if(calendarPopup!=null&&calendarPopup.isShowing()){calendarPopup.closeQuietly();return;}
+        calendarPanel=new CalendarPanel(this,unit,chinese);
+        calendarPanel.setEntries(birthdays.snapshot());
+        calendarPopup=new KeyFeedback.Popup(this,calendarPanel.card(),px(648),-2);
+        calendarPopup.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));calendarPopup.setElevation(px(14));calendarPopup.setOutsideTouchable(true);
+        calendarPopup.setOnDismissListener(()->main.post(()->{calendarPopup=null;calendarPanel=null;birthdays.removeListener(calendarListener);if(resumed&&!UiCompat.destroyed(this))updateHeaderFocus();}));
+        calendarPanel.card().setFocusable(true);calendarPanel.card().setFocusableInTouchMode(true);
+        calendarPanel.card().setOnKeyListener((v,key,event)->{
+            if(event.getAction()==KeyEvent.ACTION_DOWN&&(key==KeyEvent.KEYCODE_DPAD_CENTER||key==KeyEvent.KEYCODE_ENTER||key==KeyEvent.KEYCODE_NUMPAD_ENTER)){calendarPopup.closeQuietly();return true;}return false;});
+        calendarPopup.showAsDropDown(date,0,px(4));
+        calendarPanel.card().requestFocus();
+        birthdays.addListener(calendarListener);
+        birthdays.refresh();
+    }
+    private final BirthdayStore.Listener calendarListener=()->main.post(()->{
+        if(calendarPanel==null||calendarPopup==null||!calendarPopup.isShowing())return;
+        calendarPanel.setEntries(birthdays.snapshot());
+    });
+    private boolean screensaverAllowed(){return ready&&resumed&&!moveSaving&&movingPackage.isEmpty()&&hasWindowFocus()&&!isFinishing()&&wallpapers!=null&&!wallpapers.pickerShowing()&&(inputPopup==null||!inputPopup.isShowing())&&(weatherPopup==null||!weatherPopup.isShowing())&&(calendarPopup==null||!calendarPopup.isShowing())&&!(getCurrentFocus() instanceof EditText);}
     private String confirmFocus(){App app=currentApp();return row+":"+column+":"+topColumn+":"+(app==null?"":app.pkg);}
     private void cancelConfirm(){main.removeCallbacks(confirmHold);heldPackage="";if(pendingConfirm!=null)main.removeCallbacks(pendingConfirm);pendingConfirm=null;pendingConfirmFocus="";confirmGesture.cancel();}
     private void focusCurrent(boolean animate) {
@@ -1009,8 +1035,9 @@ public final class HomeActivity extends androidx.activity.ComponentActivity {
         View header=layout.findViewByPosition(0);boolean visible=row<0 && header!=null && header.getTop()==0;
         homeHeader.focusButton(visible&&!visiblePills.isEmpty()?pills.indexOf(visiblePills.get(topColumn)):-1);
         for(TextView pill:pills){boolean focused=visible && visiblePills.indexOf(pill)==topColumn;pill.setActivated(focused);if(!focused)pill.setPressed(false);}
-        boolean weatherFocused=visible&&!visiblePills.isEmpty()&&visiblePills.get(Math.min(topColumn,visiblePills.size()-1))==weatherText;
-        weatherText.setBackgroundDrawable(weatherFocused?HomeHeaderView.pillSurface(unit):null);
+        View focusedTop=visible&&!visiblePills.isEmpty()?visiblePills.get(Math.min(topColumn,visiblePills.size()-1)):null;
+        weatherText.setBackgroundDrawable(focusedTop==weatherText?HomeHeaderView.pillSurface(unit):null);
+        date.setBackgroundDrawable(focusedTop==date?HomeHeaderView.pillSurface(unit):null);
     }
 
     /** The top focus row: the weather line leads, then the header pills. */
@@ -1018,6 +1045,7 @@ public final class HomeActivity extends androidx.activity.ComponentActivity {
         boolean[] shown={desktopSettings.showInput(),desktopSettings.showNetwork(),desktopSettings.showSettings()};
         visiblePills.clear();
         if(weatherData!=null&&weatherText.getVisibility()==View.VISIBLE)visiblePills.add(weatherText);
+        if(date.getVisibility()==View.VISIBLE)visiblePills.add(date);
         for(int i=0;i<pills.size();i++){
             TextView pill=pills.get(i);pill.setVisibility(shown[i]?View.VISIBLE:View.GONE);
             if(shown[i])visiblePills.add(pill);

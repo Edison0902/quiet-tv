@@ -1,0 +1,82 @@
+[
+ {
+  "name": "爷爷",
+  "month": 10,
+  "day": 5,
+  "type": "lunar",
+  "birthYear": null,
+  "note": ""
+ },
+ {
+  "name": "奶奶",
+  "month": 10,
+  "day": 13,
+  "type": "lunar",
+  "birthYear": null,
+  "note": ""
+ },
+ {
+  "name": "爸",
+  "month": 12,
+  "day": 11,
+  "type": "lunar",
+  "birthYear": null,
+  "note": ""
+ },
+ {
+  "name": "琪琪",
+  "month": 12,
+  "day": 16,
+  "type": "lunar",
+  "birthYear": null,
+  "note": ""
+ },
+ {
+  "name": "琪琪爸",
+  "month": 2,
+  "day": 2,
+  "type": "lunar",
+  "birthYear": null,
+  "note": ""
+ },
+ {
+  "name": "琪琪妈",
+  "month": 3,
+  "day": 11,
+  "type": "lunar",
+  "birthYear": null,
+  "note": ""
+ },
+ {
+  "name": "琪琪的姐",
+  "month": 4,
+  "day": 28,
+  "type": "lunar",
+  "birthYear": null,
+  "note": ""
+ },
+ {
+  "name": "我(农历)",
+  "month": 7,
+  "day": 20,
+  "type": "lunar",
+  "birthYear": null,
+  "note": ""
+ },
+ {
+  "name": "我(公历)",
+  "month": 9,
+  "day": 2,
+  "type": "solar",
+  "birthYear": null,
+  "note": ""
+ },
+ {
+  "name": "妈",
+  "month": 9,
+  "day": 1,
+  "type": "lunar",
+  "birthYear": null,
+  "note": ""
+ }
+]
