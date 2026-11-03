@@ -282,7 +282,7 @@ public final class HomeActivity extends androidx.activity.ComponentActivity {
         weather=new WeatherController(this,chinese,(data,message,loading)->{weatherData=data;homeHeader.weather(data);updateHeaderFocus();
             if(weatherPopup!=null&&weatherPopup.isShowing()&&weatherCurve!=null&&data!=null)weatherCurve.setData(data.hourly);
             if(screensaver!=null)screensaver.weatherChanged(data);});
-        weatherText.setOnClickListener(v->KeyFeedback.clicked(v,this::showWeatherPanel));
+        weatherText.setOnClickListener(v->KeyFeedback.clicked(v,this::openWeather));
         date.setOnClickListener(v->KeyFeedback.clicked(v,this::showCalendarPanel));
         birthdays=BirthdayStore.get(this);
         appAdapter=new AppAdapter();list.setAdapter(appAdapter);
@@ -811,6 +811,13 @@ public final class HomeActivity extends androidx.activity.ComponentActivity {
         return super.dispatchKeyEvent(event);
     }
 
+    /** The header weather line opens the firmware's own weather app when it exists — it carries
+     *  the full forecasts — and falls back to the built-in curve panel otherwise. */
+    private void openWeather(){
+        Intent weather=getPackageManager().getLaunchIntentForPackage("com.xiaomi.tweather");
+        if(weather==null){showWeatherPanel();return;}
+        startActivity(weather);KeyFeedback.confirm(this);
+    }
     /** The weather panel: place, condition, the day's range and the next 24 hours as a curve. */
     private void showWeatherPanel(){
         Log.i(TAG,"Weather panel requested data="+(weatherData!=null)+" popup="+(weatherPopup!=null));
