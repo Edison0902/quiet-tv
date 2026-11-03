@@ -42,7 +42,7 @@ final class HomeHeaderView extends FrameLayout {
         weather.setFocusable(true);weather.setFocusableInTouchMode(true);
         weather.setPadding(px(10),0,px(10),0);
         weather.setOnFocusChangeListener((v,focused)->weather.setBackgroundDrawable(focused?pillSurface(unit):null));
-        clock=text("",50,400,0xfff1f2f6);clock.setTypeface(Typeface.create("sans-serif",Typeface.NORMAL));if(Build.VERSION.SDK_INT>=21)clock.setFontFeatureSettings("tnum");
+        clock=text("",118,300,0xfff1f2f6);clock.setTypeface(Typeface.create("sans-serif-light",Typeface.NORMAL));if(Build.VERSION.SDK_INT>=21)clock.setFontFeatureSettings("tnum");
         date=text("",14,500,0xffe6e7ed);UiCompat.letterSpacing(date,.08f);
         // The date line is the header's focus stop after the weather: OK opens the calendar panel.
         date.setFocusable(true);date.setFocusableInTouchMode(true);
@@ -79,17 +79,17 @@ final class HomeHeaderView extends FrameLayout {
             for(View v:new View[]{greetingRow,weather,clock,date,divider,intro,timeRow})detach(v);
             information.removeAllViews();
             if(gallery){
-                add(information,greetingRow,-2,28,0);add(information,clock,-1,86,0);add(information,date,-1,22,0);add(information,weather,-2,26,3);
+                add(information,greetingRow,-2,28,0);add(information,clock,-1,150,0);add(information,date,-1,22,0);add(information,weather,-2,26,3);
             }else{
-                add(information,intro,-1,28,0);add(intro,greetingRow,-2,-1,0);detach(weather);LinearLayout.LayoutParams wp=new LinearLayout.LayoutParams(-2,-2);intro.addView(weather,wp);
-                add(information,timeRow,-1,64,3);add(timeRow,clock,-2,-1,0);add(timeRow,divider,1,28,0);LinearLayout.LayoutParams dp=(LinearLayout.LayoutParams)divider.getLayoutParams();dp.leftMargin=px(16);dp.rightMargin=px(16);
+                add(information,intro,-1,28,0);add(intro,greetingRow,-2,-1,0);detach(weather);LinearLayout.LayoutParams wp=new LinearLayout.LayoutParams(0,-1,1);intro.addView(weather,wp);
+                add(information,timeRow,-1,150,3);add(timeRow,clock,-2,-1,0);add(timeRow,divider,1,52,0);LinearLayout.LayoutParams dp=(LinearLayout.LayoutParams)divider.getLayoutParams();dp.leftMargin=px(16);dp.rightMargin=px(16);
                 detach(date);timeRow.addView(date,new LinearLayout.LayoutParams(-2,-2));
             }
             arranged=settings.layout();
         }
         information.setGravity(gallery?Gravity.CENTER_HORIZONTAL:Gravity.START);
         for(TextView v:new TextView[]{greeting,clock,date,weather})v.setGravity(gallery?Gravity.CENTER:Gravity.CENTER_VERTICAL);
-        clock.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,px(gallery?79:50));
+        clock.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,px(118));
         greeting.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,px(gallery?15:14));date.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,px(gallery?15:14));weather.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,px(gallery?15:14));
         UiCompat.letterSpacing(greeting,gallery?.02f:.14f);UiCompat.letterSpacing(date,gallery?.02f:.08f);
         FrameLayout.LayoutParams ip=(FrameLayout.LayoutParams)information.getLayoutParams();ip.width=px(gallery?538:510);ip.leftMargin=px(gallery?211:50);ip.topMargin=px(gallery?(settings.showTime()?75:97):32);information.setLayoutParams(ip);

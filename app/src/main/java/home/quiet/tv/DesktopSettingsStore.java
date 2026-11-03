@@ -45,7 +45,7 @@ final class DesktopSettingsStore {
     boolean showAppTitle(){return preferences.getBoolean("show-app-title",true);}
     boolean showHomeApps(){return preferences.getBoolean("show-home-apps",true);}
     boolean showWatchTv(){return preferences.getBoolean("show-watch-tv",false);}
-    boolean showDockBackground(){return preferences.getBoolean("show-dock-background",true);}
+    boolean showDockBackground(){return preferences.getBoolean("show-dock-background",false);}
     boolean showAllAppsNames(){return preferences.getBoolean("show-all-apps-names",false);}
     int homeWallpaperBlur(){return Math.max(0,Math.min(100,preferences.getInt("home-wallpaper-blur",0)));}
     int secondWallpaperBlur(){return Math.max(0,Math.min(100,preferences.getInt("second-wallpaper-blur",0)));}
