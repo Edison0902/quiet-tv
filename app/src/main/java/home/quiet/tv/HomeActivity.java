@@ -52,7 +52,7 @@ public final class HomeActivity extends androidx.activity.ComponentActivity {
     private WeatherData weatherData;
     private KeyFeedback.Popup weatherPopup;
     private WeatherCurveView weatherCurve;
-    private final BirthdayStore birthdays=BirthdayStore.get(this);
+    private BirthdayStore birthdays; // set in onCreate: field initializers run before the base context is attached
     private KeyFeedback.Popup calendarPopup;
     private CalendarPanel calendarPanel;
     private final HashMap<String,App> artworkCache = new HashMap<>();
@@ -284,6 +284,7 @@ public final class HomeActivity extends androidx.activity.ComponentActivity {
             if(screensaver!=null)screensaver.weatherChanged(data);});
         weatherText.setOnClickListener(v->KeyFeedback.clicked(v,this::showWeatherPanel));
         date.setOnClickListener(v->KeyFeedback.clicked(v,this::showCalendarPanel));
+        birthdays=BirthdayStore.get(this);
         appAdapter=new AppAdapter();list.setAdapter(appAdapter);
         applyDesktopSettings();updateClock(); updateNetwork();
         screensaver=new ScreensaverController(this,root,wallpapers,unit,chinese,new ScreensaverController.Host(){
