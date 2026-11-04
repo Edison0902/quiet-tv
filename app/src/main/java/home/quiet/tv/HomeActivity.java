@@ -757,7 +757,11 @@ public final class HomeActivity extends androidx.activity.ComponentActivity {
         if(remoteAction.isEmpty())remoteAction=key==KeyEvent.KEYCODE_MENU?"settings":key==KeyEvent.KEYCODE_TV_INPUT?"inputs":"";
         if(!remoteAction.isEmpty()){
             if(event.getAction()==KeyEvent.ACTION_UP && !event.isCanceled()){
-                if("settings".equals(remoteAction))openSettings(Settings.ACTION_SETTINGS);
+                if("settings".equals(remoteAction)){
+                    Log.i(TAG,"settings branch fire");
+                    try{startActivity(new Intent("com.xiaomi.mitv.settings.SETTINGS").setClassName("com.xiaomi.mitv.settings","com.xiaomi.mitv.settings.entry.MainActivity"));Log.i(TAG,"settings direct ok");}
+                    catch(RuntimeException unreachable){Log.i(TAG,"settings direct failed "+unreachable);openSettings(Settings.ACTION_SETTINGS);}
+                }
                 else if("inputs".equals(remoteAction))showInputs();
                 else if("desktop_settings".equals(remoteAction))leaveHome(()->startActivity(settingsIntent(DesktopSettingsActivity.class)));
                 else if("home".equals(remoteAction)){HomeGuardService.cancelInputTransition();startActivity(HomeController.launchIntent(this));}
@@ -983,7 +987,7 @@ public final class HomeActivity extends androidx.activity.ComponentActivity {
         if(!waitingForUnlock&&screensaver!=null){cancelConfirm();if(screensaver.pointer(event))return true;screensaver.interaction();}return super.dispatchGenericMotionEvent(event);
     }
     private void leaveHome(Runnable launch){cancelInputWork();leaveHomePrepared(launch);}
-    private void leaveHomePrepared(Runnable launch){cancelConfirm();screensaver.pause();HomeGuardService.bootSourceUserAction(this);wallpapers.beforeLeave(()->{if(resumed&&!isFinishing()&&!UiCompat.destroyed(this))launch.run();});}
+    private void leaveHomePrepared(Runnable launch){cancelConfirm();screensaver.pause();HomeGuardService.bootSourceUserAction(this);Log.i(TAG,"leaveHomePrepared");wallpapers.beforeLeave(()->{Log.i(TAG,"beforeLeave fired resumed="+resumed);if(resumed&&!isFinishing()&&!UiCompat.destroyed(this))launch.run();});}
     private void launchSelected(){
         App app=currentApp();if(app==null)return;saveFocus();
         if(!movingPackage.isEmpty()){saveMove();KeyFeedback.confirm(this);return;}
@@ -1205,6 +1209,7 @@ public final class HomeActivity extends androidx.activity.ComponentActivity {
         if(!dispatched)systemEntryPending="";
     }
     private void openSettings(String action){
+        Log.i(TAG,"openSettings "+action);
         settingsTrial=null;settingsTried.clear();
         leaveSystemEntry(Settings.ACTION_WIFI_SETTINGS.equals(action)?"network":"settings",()->{
             boolean opened=new SystemSettingsRouter(this).open(action);systemEntryResult(opened);

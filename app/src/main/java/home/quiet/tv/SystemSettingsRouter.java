@@ -187,7 +187,8 @@ final class SystemSettingsRouter {
         for(Intent intent:candidates(action,ethernet))try{
             for(ComponentInfo info:targets(intent)){
                 String rejection=rejection(action,intent,info);
-                if(!rejection.isEmpty()){DiagnosticLog.info("settings.route",DiagnosticLog.intent(intent)+" result="+rejection);continue;}
+                if(!rejection.isEmpty()){android.util.Log.i("QuietTV","route rejected "+info.packageName+"/"+info.name+" why="+rejection);DiagnosticLog.info("settings.route",DiagnosticLog.intent(intent)+" result="+rejection);continue;}
+                android.util.Log.i("QuietTV","route kept "+info.packageName+"/"+info.name+" type="+launchType(intent));
                 Route route=new Route(intent,info);if(seen.add(route.identity))result.add(route);
             }
         }catch(RuntimeException failure){DiagnosticLog.error("settings.route.failed",failure);}
@@ -206,6 +207,7 @@ final class SystemSettingsRouter {
         }
         String slot=action+"|"+ethernet;SettingsRouteMemory memory=new SettingsRouteMemory(context);
         List<Route> routes=routes(action,ethernet);
+        android.util.Log.i("QuietTV","settings routes="+routes.size());
         // A record can only reorder newly resolved built-in candidates, never supply an Intent.
         for(int i=0;i<routes.size();i++)if(!settingsFallback(action,routes.get(i).page)&&memory.preferred(slot,routes.get(i))){Route preferred=routes.remove(i);routes.add(0,preferred);break;}
         diagnostic.stage("ROUTING",android.os.SystemClock.elapsedRealtime());
@@ -224,6 +226,7 @@ final class SystemSettingsRouter {
                 }
                 SettingsRouteMemory.Attempt attempt=new SettingsRouteMemory.Attempt(action,slot,route,scope,trial);
                 DiagnosticLog.info("settings.dispatch","attempt="+diagnostic.id+" resolved="+target.flattenToShortString()+" type="+route.type+" page="+route.page+" result=dispatched_unverified");
+                android.util.Log.i("QuietTV","settings dispatch "+target.flattenToShortString()+" routes="+routes.size());
                 try{SettingsPageCapture.observe(context,attempt);}catch(RuntimeException unavailable){DiagnosticLog.error("settings.capture.unavailable",unavailable);}
                 boolean fallback=settingsFallback(action,route.page);
                 diagnostic.finish("DISPATCHED_UNVERIFIED",fallback?"system_settings_fallback":"candidate_dispatched",System.currentTimeMillis(),android.os.SystemClock.elapsedRealtime());
