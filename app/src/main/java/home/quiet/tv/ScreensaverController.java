@@ -93,7 +93,9 @@ final class ScreensaverController {
         int key=event.getKeyCode();if(systemKey(key)){interaction();return false;}
         Long held=wakeKeys.get(key);
         if(held!=null&&event.getAction()==KeyEvent.ACTION_DOWN&&event.getRepeatCount()==0&&event.getDownTime()!=held){wakeKeys.remove(key);held=null;}
-        if(state==State.OFF&&held==null)return false;
+        // While the screensaver is off, no key may be swallowed: a stale wake entry (a lost UP
+        // after a restart) used to eat that key forever - the remote's settings key died this way.
+        if(state==State.OFF){if(held!=null)wakeKeys.remove(key);return false;}
         if(event.getAction()==KeyEvent.ACTION_DOWN){wakeKeys.put(key,event.getDownTime());exit();}
         else if(event.getAction()==KeyEvent.ACTION_UP)wakeKeys.remove(key);
         return true;

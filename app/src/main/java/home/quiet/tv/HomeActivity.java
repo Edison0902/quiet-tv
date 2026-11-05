@@ -744,6 +744,24 @@ public final class HomeActivity extends androidx.activity.ComponentActivity {
         if(confirm && (!ready || row<0) && event.getRepeatCount()==0)
             DiagnosticLog.info("home.action.key","entry="+topEntry()+" key="+key+" phase="+event.getAction()+" ready="+ready+" popup="+(inputPopup!=null && inputPopup.isShowing()));
         if(inputPopup!=null && inputPopup.isShowing()){cancelConfirm();return super.dispatchKeyEvent(event);}
+        // Remote shortcut keys work before the app grid finishes loading: the settings key must
+        // answer even in the seconds right after a reboot, while ready is still false.
+        String remoteAction=new RemoteKeyMap(this).action(event);
+        if("system".equals(remoteAction))return super.dispatchKeyEvent(event);
+        if(remoteAction.isEmpty())remoteAction=key==KeyEvent.KEYCODE_MENU?"settings":key==KeyEvent.KEYCODE_TV_INPUT?"inputs":"";
+        if(!remoteAction.isEmpty()){
+            if("settings".equals(remoteAction) && event.getAction()==KeyEvent.ACTION_DOWN){
+                Log.i(TAG,"settings branch fire");
+                try{startActivity(new Intent("com.xiaomi.mitv.settings.SETTINGS").setClassName("com.xiaomi.mitv.settings","com.xiaomi.mitv.settings.entry.MainActivity"));}
+                catch(RuntimeException unreachable){openSettings(Settings.ACTION_SETTINGS);}
+            }
+            else if(event.getAction()==KeyEvent.ACTION_UP && !event.isCanceled()){
+                if("inputs".equals(remoteAction))showInputs();
+                else if("desktop_settings".equals(remoteAction))leaveHome(()->startActivity(settingsIntent(DesktopSettingsActivity.class)));
+                else if("home".equals(remoteAction)){HomeGuardService.cancelInputTransition();startActivity(HomeController.launchIntent(this));}
+            }
+            return true;
+        }
         if(!ready)return super.dispatchKeyEvent(event);
         if(ScreensaverController.systemKey(key))return super.dispatchKeyEvent(event);
         if(!confirm)cancelConfirm();
@@ -751,22 +769,6 @@ public final class HomeActivity extends androidx.activity.ComponentActivity {
         if(!movingPackage.isEmpty()){
             if(confirm){if(event.getAction()==KeyEvent.ACTION_UP&&!event.isCanceled()){saveMove();KeyFeedback.confirm(this);}return true;}
             if(key>=KeyEvent.KEYCODE_DPAD_UP&&key<=KeyEvent.KEYCODE_DPAD_RIGHT){if(event.getAction()==KeyEvent.ACTION_DOWN)moveSelected(key==KeyEvent.KEYCODE_DPAD_LEFT?-1:key==KeyEvent.KEYCODE_DPAD_RIGHT?1:0,key==KeyEvent.KEYCODE_DPAD_UP?-1:key==KeyEvent.KEYCODE_DPAD_DOWN?1:0);return true;}
-        }
-        String remoteAction=new RemoteKeyMap(this).action(event);
-        if("system".equals(remoteAction))return super.dispatchKeyEvent(event);
-        if(remoteAction.isEmpty())remoteAction=key==KeyEvent.KEYCODE_MENU?"settings":key==KeyEvent.KEYCODE_TV_INPUT?"inputs":"";
-        if(!remoteAction.isEmpty()){
-            if(event.getAction()==KeyEvent.ACTION_UP && !event.isCanceled()){
-                if("settings".equals(remoteAction)){
-                    Log.i(TAG,"settings branch fire");
-                    try{startActivity(new Intent("com.xiaomi.mitv.settings.SETTINGS").setClassName("com.xiaomi.mitv.settings","com.xiaomi.mitv.settings.entry.MainActivity"));Log.i(TAG,"settings direct ok");}
-                    catch(RuntimeException unreachable){Log.i(TAG,"settings direct failed "+unreachable);openSettings(Settings.ACTION_SETTINGS);}
-                }
-                else if("inputs".equals(remoteAction))showInputs();
-                else if("desktop_settings".equals(remoteAction))leaveHome(()->startActivity(settingsIntent(DesktopSettingsActivity.class)));
-                else if("home".equals(remoteAction)){HomeGuardService.cancelInputTransition();startActivity(HomeController.launchIntent(this));}
-            }
-            return true;
         }
         if(key==KeyEvent.KEYCODE_DPAD_LEFT || key==KeyEvent.KEYCODE_DPAD_RIGHT || key==KeyEvent.KEYCODE_DPAD_UP || key==KeyEvent.KEYCODE_DPAD_DOWN){
             if(event.getAction()==KeyEvent.ACTION_UP)return true;
