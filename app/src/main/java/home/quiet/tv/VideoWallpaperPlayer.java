@@ -20,9 +20,14 @@ import java.util.concurrent.Executors;
 final class VideoWallpaperPlayer {
     interface Snapshot {void ready(Bitmap image);}
     interface Listener {void ready();void failed(Failure reason);void stopped();default void cover(Runnable change){change.run();}}
-    interface PlaybackEvents {void ready();void failed(Failure reason);void size(int width,int height,float pixelRatio);}
+    interface PlaybackEvents {
+        void ready();void failed(Failure reason);void size(int width,int height,float pixelRatio);
+        default void softwareDecoderAvailable(boolean available){}
+        default void retrySoftware(){failed(Failure.DECODE);}
+        default void retrying(){}
+    }
     enum Failure {
-        UNSUPPORTED,DECODE,FILE,TIMEOUT,OUTPUT,RELEASING,UNKNOWN;
+        UNSUPPORTED,DECODE,FILE,TIMEOUT,OUTPUT,RELEASING,UNKNOWN,INTERRUPTED;
         String message(boolean chinese){
             switch(this){
                 case UNSUPPORTED:return chinese?"电视不支持此视频编码或规格":"Video encoding or format unsupported by this TV";
@@ -31,10 +36,16 @@ final class VideoWallpaperPlayer {
                 case TIMEOUT:return chinese?"视频加载超时":"Video loading timed out";
                 case OUTPUT:return chinese?"视频画面输出失败":"Video output failed";
                 case RELEASING:return chinese?"播放器资源尚未释放，暂时无法播放":"Player resources are still being released. Video is temporarily unavailable";
+                case INTERRUPTED:return chinese?"视频播放已中断":"Video playback interrupted";
                 default:return chinese?"视频播放失败":"Video playback failed";
             }
         }
-        String hint(boolean chinese){if(this==RELEASING)return message(chinese);return message(chinese)+(this==UNSUPPORTED||this==DECODE||this==TIMEOUT?(chinese?"，请尝试 1080p 30 FPS H.264 SDR 视频":". Try 1080p 30 FPS H.264 SDR video."):(chinese?"，按确定键重试":". Press OK to retry."));}
+        String hint(boolean chinese){
+            if(this==RELEASING)return message(chinese);
+            if(this==UNSUPPORTED)return message(chinese)+(chinese?"，请转换为兼容编码后重试":". Convert to a compatible encoding and retry.");
+            if(this==DECODE)return message(chinese)+(chinese?"，可尝试转换编码，详情见诊断日志":". Try converting the encoding; see diagnostics for details.");
+            return message(chinese)+(chinese?"，按确定键重试":". Press OK to retry.");
+        }
     }
     private static final String TAG="QuietTVWallpaper";
     private final Activity activity;
@@ -88,7 +99,13 @@ final class VideoWallpaperPlayer {
         boolean blocked=releaseBlocked();
         DiagnosticLog.info("wallpaper.video.timeout",context(generation)+" reason="+(blocked?"resource_release_pending":"first_frame_timeout")+" paused="+paused+" screenOff="+screenOff
             +" output="+(pending==null?"missing":pending.textureOutput?"texture":"surface")+" surfaceValid="+(pending!=null&&(pending.textureOutput?pending.texture!=null:pending.surface!=null&&pending.surface.isValid()))+" started="+(pending!=null&&pending.started)+" textureUpdated="+(pending!=null&&pending.updated)+" holder="+(pending==null?"unknown":pending.surfaceWidth+"x"+pending.surfaceHeight));
-        fail(generation,blocked?Failure.RELEASING:Failure.TIMEOUT);
+        final int request=generation;
+        if(blocked){fail(request,Failure.RELEASING);return;}
+        worker.post(()->{
+            if(request!=generation)return;
+            if(decoder!=null&&decoder.owner==owner&&decoder.player.retrySoftware("first_frame_timeout"))return;
+            main.post(()->fail(request,Failure.TIMEOUT));
+        });
     };
     private String context(int request){return "request="+request+" wallpaper="+VideoDiagnostics.wallpaper(entry==null?null:entry.id);}
     private boolean interactive(){PowerManager power=(PowerManager)activity.getSystemService(Context.POWER_SERVICE);return power!=null&&(Build.VERSION.SDK_INT>=20?power.isInteractive():power.isScreenOn());}
@@ -197,7 +214,13 @@ final class VideoWallpaperPlayer {
         if(captured==null||!rendered||!current(captured)||captured.view.getWidth()==0||captured.view.getHeight()==0){callback.ready(null);return;}
         if(captured.textureOutput){
             Bitmap image=null;try{image=((TextureView)captured.view).getBitmap(width,height);}catch(RuntimeException|OutOfMemoryError ignored){}
-            callback.ready(image);return;
+            if(image==null){callback.ready(null);return;}
+            Bitmap copy=image;
+            copies.execute(()->{
+                boolean copied=false;try{copied=hasPixels(copy);}catch(RuntimeException|OutOfMemoryError ignored){}
+                boolean validCopy=copied;
+                main.post(()->{if(validCopy&&rendered&&current(captured,request))callback.ready(copy);else{copy.recycle();callback.ready(null);}});
+            });return;
         }
         if(Build.VERSION.SDK_INT<24){callback.ready(null);return;}
         // Preserve the native view's aspect; the wallpaper snapshot applies the viewport crop.
@@ -213,6 +236,16 @@ final class VideoWallpaperPlayer {
                 if(success&&rendered&&current(captured,request))callback.ready(image);else{image.recycle();callback.ready(null);}
             });}catch(RuntimeException e){image.recycle();main.post(()->callback.ready(null));}
         });
+    }
+    // API21-23 can return an allocated but transparent bitmap when texture copying fails.
+    // A decoded black frame is opaque and must remain valid.
+    static boolean hasPixels(Bitmap image){
+        int width=image.getWidth();int[] row=new int[width];
+        for(int y=0;y<image.getHeight();y++){
+            image.getPixels(row,0,width,0,y,width,1);
+            for(int pixel:row)if((pixel>>>24)!=0)return true;
+        }
+        return false;
     }
     @android.annotation.TargetApi(24) private static final class Api24 {
         interface Result {void ready(boolean success);}
@@ -282,7 +315,7 @@ final class VideoWallpaperPlayer {
         volatile boolean retired,released;
         volatile SurfaceTexture texture;
         volatile Surface surface;
-        boolean preparing,started,updated;
+        boolean preparing,started,updated,softwareFallback;
         int unappliedRotation;
         int surfaceWidth,surfaceHeight;
         float aspect;
@@ -370,6 +403,12 @@ final class VideoWallpaperPlayer {
                     WallpaperPlayback player=new WallpaperPlayback(activity.getApplicationContext(),worker,output,file,selected,diagnosticContext,new PlaybackEvents(){
                         @Override public void ready(){main.post(()->{if(current(next,request)){next.started=true;firstFrame(next);}});}
                         @Override public void failed(Failure reason){main.post(()->fail(request,reason));}
+                        @Override public void retrying(){main.post(()->{
+                            if(!current(next,request))return;
+                            rendered=false;next.started=false;next.updated=false;next.softwareFallback=true;
+                            if(listener!=null)listener.stopped();
+                            main.removeCallbacks(timeout);if(!paused&&outputAllowed())main.postDelayed(timeout,8000);
+                        });}
                         @Override public void size(int width,int height,float pixelRatio){main.post(()->{if(current(next,request)&&width>0&&height>0){DiagnosticLog.info("wallpaper.video.output_size",diagnosticContext+" size="+width+"x"+height+" pixelRatio="+pixelRatio+" evidence=video_size_callback_only");next.aspect=VideoGeometry.aspect(width,height,pixelRatio,0);layout();}});}
                     });
                     decoder=new Decoder(owner,next.outputId,detached,player,output,next.textureOutput,diagnosticContext);
@@ -385,7 +424,7 @@ final class VideoWallpaperPlayer {
         if(!outputAllowed()){diagnosticState("frame_deferred");return;}
         boolean outputReady=next.textureOutput?next.updated:next.surfaceWidth>0&&next.surfaceHeight>0&&next.surface!=null&&next.surface.isValid();
         if(!outputReady)return;
-        rendered=true;main.removeCallbacks(timeout);Log.i(TAG,"first frame request="+next.request);DiagnosticLog.info("wallpaper.video.rendered",context(next.request)+" output="+(next.textureOutput?"texture":"surface")+" epoch="+next.epoch+" holder="+next.surfaceWidth+"x"+next.surfaceHeight+" evidence="+(BuildConfig.LEGACY_19?(Build.VERSION.SDK_INT>=17?"platform_rendering_start_callback":"platform_prepared_and_texture_updated"):"rendered_first_frame_callback"));
+        rendered=true;main.removeCallbacks(timeout);Log.i(TAG,"first frame request="+next.request);DiagnosticLog.info("wallpaper.video.rendered",context(next.request)+" output="+(next.textureOutput?"texture":"surface")+" epoch="+next.epoch+" holder="+next.surfaceWidth+"x"+next.surfaceHeight+" evidence="+(next.softwareFallback?"software_rendered_first_frame_callback":BuildConfig.LEGACY_19?(Build.VERSION.SDK_INT>=17?"platform_rendering_start_callback":"platform_prepared_and_texture_updated"):"rendered_first_frame_callback"));
         diagnosticState("first_frame");
         final int request=next.request;
         main.post(()->{if(current(next,request)&&rendered&&listener!=null)listener.ready();});

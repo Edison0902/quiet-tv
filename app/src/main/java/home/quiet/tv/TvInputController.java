@@ -75,7 +75,7 @@ final class TvInputController {
         mergeVendorSources(snapshot);
         return snapshot;
     }
-    private void mergeVendorSources(Snapshot snapshot){
+    void mergeVendorSources(Snapshot snapshot){
         Map<String,Integer> registered=new HashMap<>();Set<String> ids=new HashSet<>();boolean unknown=false;
         for(TvInputInfo input:snapshot.raw)try{ids.add(input.getId());}catch(RuntimeException unavailable){unknown=true;}
         // Include hidden entries: a vendor alias must not resurrect a user's hidden port.
@@ -93,7 +93,7 @@ final class TvInputController {
         Set<Integer> unresolved=new HashSet<>();for(Map.Entry<String,Integer> input:registered.entrySet())if(!covered.contains(input.getKey()))unresolved.add(input.getValue());
         for(Iterator<VendorTvInputs.Source> it=snapshot.vendor.sources.iterator();it.hasNext();){
             VendorTvInputs.Source source=it.next();
-            String target=profile.vendorTarget(source.key),label=profile.label(source.key);if(!label.isEmpty())source.label=label;
+            String target=profile.vendorTarget(source.key),label=new SourcePairingStore(context).label(source.key);if(label.isEmpty())label=profile.label(source.key);if(!label.isEmpty())source.label=label;
             // Supplement within a type only when every registered physical port has a unique,
             // explicit native alias. Missing/stale mappings retain the first-batch conservative rule.
             if(unknown||profile.hidden(source.key)||covered.contains(target)||unresolved.contains(source.type)||source.type<0&&!registered.isEmpty()||counts.get(source.key)>1)it.remove();
@@ -238,6 +238,7 @@ final class TvInputController {
         return correction(Build.MODEL,service.packageName,input.getType(),input.getId(),Build.DISPLAY);
     }
     String inputLabel(TvInputInfo input){
+        String paired=new SourcePairingStore(context).label(input.getId());if(!paired.isEmpty())return paired;
         String custom=new DeviceInputProfile(context).label(input.getId());if(!custom.isEmpty())return custom;
         Route route=correction(input);if(route!=null)return route.label;
         try{CharSequence label=input.loadLabel(context);if(label!=null&&label.length()>0)return label.toString();}
@@ -280,26 +281,9 @@ final class TvInputController {
         return intent!=null?intent:fallbackInputIntent(input);
     }
 
-    static boolean enabledSystem(Context context,ComponentInfo info){
-        if((info.applicationInfo.flags&ApplicationInfo.FLAG_SYSTEM)==0)return false;
-        return enabled(context,info);
-    }
-    static boolean enabled(Context context,ComponentInfo info){
-        PackageManager pm=context.getPackageManager();
-        int app=pm.getApplicationEnabledSetting(info.packageName),component=pm.getComponentEnabledSetting(new ComponentName(info.packageName,info.name));
-        return (app==PackageManager.COMPONENT_ENABLED_STATE_DEFAULT?info.applicationInfo.enabled:app==PackageManager.COMPONENT_ENABLED_STATE_ENABLED)
-            && (component==PackageManager.COMPONENT_ENABLED_STATE_DEFAULT?info.enabled:component==PackageManager.COMPONENT_ENABLED_STATE_ENABLED);
-    }
-    static boolean canOpen(Context context,ComponentName target){
-        if(target==null)return false;
-        try{
-            android.content.pm.ActivityInfo info=context.getPackageManager().getActivityInfo(target,0);
-            String reason=!enabledSystem(context,info)?"not_enabled_system":!info.exported?"not_exported":info.permission!=null && context.getPackageManager().checkPermission(info.permission,context.getPackageName())!=PackageManager.PERMISSION_GRANTED?"permission_denied permission="+info.permission:"";
-            if(!reason.isEmpty())DiagnosticLog.info("input.component","component="+target.flattenToShortString()+" result="+reason);
-            return reason.isEmpty();
-        }catch(PackageManager.NameNotFoundException unavailable){DiagnosticLog.info("input.component","component="+target.flattenToShortString()+" result=not_installed");return false;}
-        catch(RuntimeException unavailable){DiagnosticLog.error("input.component.failed","component="+target.flattenToShortString(),unavailable);return false;}
-    }
+    static boolean enabledSystem(Context context,ComponentInfo info){return InputComponents.enabledSystem(context,info);}
+    static boolean enabled(Context context,ComponentInfo info){return InputComponents.enabled(context,info);}
+    static boolean canOpen(Context context,ComponentName target){return InputComponents.canOpen(context,target);}
     Intent standardIntent(String inputId,android.net.Uri uri){
         Intent intent=new Intent(Intent.ACTION_VIEW).setDataAndType(uri,TvContract.Channels.CONTENT_ITEM_TYPE).putExtra(TvInputInfo.EXTRA_INPUT_ID,inputId);
         List<android.content.pm.ResolveInfo> handlers=pm.queryIntentActivities(intent,PackageManager.MATCH_DEFAULT_ONLY);

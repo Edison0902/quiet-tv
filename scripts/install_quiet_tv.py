@@ -22,10 +22,10 @@ INDEX = "https://beatsad.github.io/quiet-tv/latest.json"
 RELEASES = "https://github.com/BeatsAD/quiet-tv/releases/download/"
 
 
-def read_index():
-    data = resources.read_json(INDEX + "?check=" + str(time.time_ns()))
-    if data.get("schemaVersion") != 1 or not isinstance(data.get("releases"), list):
-        raise ValueError("公开版本索引无效，未使用历史缓存")
+def read_index(snapshot=None):
+    data = json.loads(Path(snapshot).read_text(encoding='utf-8')) if snapshot else resources.read_json(INDEX + "?check=" + str(time.time_ns()))
+    if not isinstance(data, dict) or data.get("schemaVersion") != 1 or not isinstance(data.get("releases"), list):
+        raise ValueError("发布版本索引无效")
     return data
 
 
@@ -211,8 +211,17 @@ def run_install(args, adb, tools, journal):
         else:
             apk_path = download(asset, journal.directory / "selected.apk")
     metadata = tools.inspect(apk_path)
+    if getattr(args, 'release_index', None):
+        index = read_index(args.release_index)
+        asset = choose(index, sdk, abis, installed, metadata['home_mode'], metadata['version_name'])
+        if asset['sha256'] != expected:
+            raise ValueError('预览发布索引与 APK 不匹配，未安装')
     check_apk(metadata, expected, sdk, abis, installed, asset)
-    journal.event("apk_verified", apk=metadata)
+    index_path = journal.directory / 'release-index.json' if index is not None else None
+    if index_path:
+        index_path.write_text(json.dumps(index, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+    journal.event("apk_verified", apk=metadata, path=str(apk_path.resolve()),
+                  index_path=str(index_path.resolve()) if index_path else '', index_sha256=tcl.digest(index_path) if index_path else '')
     vendor = (device["ro.product.brand"] + " " + device["ro.product.manufacturer"]).lower().split()
     is_tcl = bool(set(vendor).intersection(("tcl", "ffalcon", "iffalcon")))
     keep_adb = args.keep_adb and sdk >= 21
@@ -221,7 +230,7 @@ def run_install(args, adb, tools, journal):
         print("保持 ADB：当前档位未支持；独立安装／HOME 步骤继续，整体常开目标仍未完成。", flush=True)
     if args.goal == "takeover":
         if not original or "ResolverActivity" in original or not tcl.usable(tcl.user_state(stock_dump, args.user)):
-            raise ValueError("原桌面或恢复基线未确认；请先确认原主页，未执行安装及接管")
+            raise ValueError("原桌面或恢复基线未确认；Agent 须先核对原记录并继续只读检测，未执行安装及接管")
     same = installed is not None and installed["sha256"] == metadata["sha256"]
     if same and args.goal == "update":
         journal.event("unchanged_apk_verified", actual=installed)
@@ -229,17 +238,25 @@ def run_install(args, adb, tools, journal):
         return
     install_options = guard.user_options(pm_help, "install", sdk, args.user)
     print("计划：" + ("沿用相同 APK" if same else "保留数据安装") + "；目标=" + args.goal + "；ADB 设置恢复=" + str(keep_adb), flush=True)
+    # Check the selected installed APK before launching it or writing recovery/configuration state.
+    if not getattr(args, "adaptation_route", None) and same and metadata["home_mode"] == "standard" and args.goal == "takeover":
+        preflight = tcl.Journal(journal.directory / "boot-preflight")
+        try:
+            boot.configure(adb, args.user, tools, apk_path, preflight)
+        except boot.NoNativeRoute as error:
+            journal.event("boot_native_unavailable", error=str(error))
+            if sdk < 21:
+                raise ValueError("接管未完成：" + str(error) + "；现有兼容守护不支持 API " + str(sdk)
+                                 + "。Agent 须继续核对本机适配与恢复条件，不转交用户在应用内手动接管。") from error
+            print("标准开机 HOME 路线不可用：" + str(error) + "；执行时评估现有兼容守护及实际 APK 能力。", flush=True)
+        finally:
+            preflight.close()
     if not args.apply:
         if getattr(args, "adaptation_route", None):
             if same:
                 adaptation.prepare(adb, args.user, journal, args.adaptation_route)
             else:
                 print("专项路线=" + args.adaptation_route + "；安装后仍须核对本机规则、原包版本及恢复能力，不匹配则停止。")
-        elif same and metadata["home_mode"] == "standard" and args.goal == "takeover":
-            try:
-                boot.configure(adb, args.user, tools, apk_path, journal)
-            except boot.NoNativeRoute as error:
-                print("标准开机 HOME 路线不可用：" + str(error) + "；执行时评估兼容守护。", flush=True)
         print("仅预览，未修改电视。核对目标和授权后，以新的 --record 目录加 --apply 执行。", flush=True)
         return
     unchanged_user(adb, args.user)
@@ -329,13 +346,14 @@ def run_install(args, adb, tools, journal):
             native = True
         except boot.NoNativeRoute as error:
             journal.event("boot_native_unavailable", error=str(error))
-            print("标准开机 HOME 路线不可用：" + str(error) + "；继续已有兼容守护。", flush=True)
+            print("标准开机 HOME 路线不可用：" + str(error), flush=True)
     observer = native and (getattr(args, "native_observer", False) or maintenance.native_observer_needed(baseline))
     if getattr(args, "native_observer", False) and not native:
         raise ValueError("系统 HOME 未设置成功，不能使用直接 HOME 原桌面观察")
     if not native or observer or keep_adb and not route:
         if sdk < 21:
-            raise ValueError("Android 4.4 无兼容守护且默认 HOME 未确认，不能报告接管完成")
+            raise ValueError("接管未完成：现有兼容守护不支持 API " + str(sdk)
+                             + "；Agent 须核对本机适配与恢复条件，不转交用户在应用内手动接管")
         guard_args = SimpleNamespace(serial=args.serial, user=args.user, package=tcl.PACKAGE,
             adb=args.adb, apply=True, pause=False, direct_home=False, adb_only=native and not observer,
             native_observer=observer,
@@ -367,6 +385,7 @@ def main():
                             help="仅配置桌面，保留已有 ADB 选择")
     parser.add_argument("--apply", action="store_true", help="执行本次目标；省略时只读预览")
     parser.add_argument("--apk", type=Path, help="Agent 已核验发布来源的本地 APK；省略时按实时索引选择")
+    parser.add_argument("--release-index", type=Path, help="本次预览保存的发布索引；复用原 TCL relay 候选")
     parser.add_argument("--sha256", type=str.lower, help="本地 APK 的可信发布校验值，必须与 --apk 一起给出")
     parser.add_argument("--aapt2")
     parser.add_argument("--apksigner")
@@ -382,6 +401,8 @@ def main():
         parser.error("专项路线仅用于明确的接管操作")
     if args.native_observer and (args.goal != "takeover" or args.verify_only or args.adaptation_route):
         parser.error("原桌面观察仅用于标准接管，不与专项路线或只读验收混用")
+    if args.release_index and not args.apk:
+        parser.error("预览发布索引须与已核验的本地 APK 一起使用")
     if args.user < 0 or bool(args.apk) != bool(args.sha256) or args.sha256 and not re.fullmatch(r"[a-f0-9]{64}", args.sha256):
         parser.error("用户无效，或本地 APK 未同时提供完整 SHA-256")
     if args.keep_adb and args.goal != "takeover":

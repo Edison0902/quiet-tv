@@ -15,14 +15,15 @@ from verify_install import HOME, HOME_ARGS, component, help_text, resolver
 
 VIDAA = 'persist.vt.use_home_pkg'
 STOCK = 'com.jamdeo.tv.vod'
+EARLY_HOME = tcl.PACKAGE + '/' + tcl.PACKAGE + '.BootHomeActivity'
 
 
 class NoNativeRoute(ValueError):
     """No native route is available, with no change made or HOME confirmed unchanged."""
 
 
-def direct_boot_home(tree):
-    """Read the actual HomeActivity declaration, with application-level inheritance."""
+def direct_boot_home(tree, activity='HomeActivity'):
+    """Read the named HOME entry, including application-level Direct Boot inheritance."""
     stack, application, activities = [], {}, []
     for line in tree.splitlines():
         element = re.match(r'(\s*)E: ([\w-]+)(?:\s|$)', line)
@@ -34,7 +35,10 @@ def direct_boot_home(tree):
             if element[2] == 'application':
                 application = node
             elif element[2] == 'activity' and any(tag == 'application' for _, tag, _ in stack):
+                node['filters'] = []
                 activities.append(node)
+            elif element[2] == 'intent-filter' and stack and stack[-1][1] == 'activity':
+                stack[-1][2]['filters'].append(node)
             stack.append((depth, element[2], node))
         elif stack:
             attr = re.search(r'A: (?:android|http://schemas\.android\.com/apk/res/android):(name|directBootAware)[^=]*=(.*)', line)
@@ -44,16 +48,25 @@ def direct_boot_home(tree):
                     name = re.match(r'"([^\"]+)"', value)
                     if name:
                         stack[-1][2]['name'] = name[1]
+                        if stack[-1][1] in ('action', 'category'):
+                            for _, tag, parent in reversed(stack):
+                                if tag == 'intent-filter':
+                                    parent.setdefault(stack[-1][1], set()).add(name[1])
+                                    break
                 else:
                     stack[-1][2]['aware'] = bool(re.fullmatch(r'(?:\(type 0x12\))?(?:0xffffffff|0x1|true)', value.strip()))
-    homes = [a for a in activities if a.get('name') in ('.HomeActivity', 'home.quiet.tv.HomeActivity')]
-    return len(homes) == 1 and homes[0].get('aware', application.get('aware', False))
+    homes = [a for a in activities if a.get('name') in ('.' + activity, 'home.quiet.tv.' + activity)]
+    if len(homes) != 1 or not homes[0].get('aware', application.get('aware', False)):
+        return False
+    return any('android.intent.action.MAIN' in f.get('action', set())
+               and {'android.intent.category.HOME', 'android.intent.category.DEFAULT'} <= f.get('category', set())
+               for f in homes[0]['filters'])
 
 
 def apk_boot_capability(tools, apk):
     tree = tcl.checked(subprocess.run([tools.aapt2, 'dump', 'xmltree', str(apk), '--file', 'AndroidManifest.xml'],
         capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=60, check=False))
-    return direct_boot_home(tree)
+    return {'home': direct_boot_home(tree), 'placeholder': direct_boot_home(tree, 'BootHomeActivity')}
 
 
 def ensure_user(adb, user):
@@ -74,18 +87,23 @@ def identity(adb, user):
 
 
 def home_commands(adb, sdk, user):
+    failures = []
     for tool in (('cmd', 'package'), ('pm',)):
+        operation = 'query-activities'
         try:
             usage = help_text(adb, *tool)
             query_options = guard.user_options(usage, 'query-activities', sdk, user)
+            operation = 'set-home-activity'
             set_options = guard.user_options(usage, 'set-home-activity', sdk, user)
+            operation = 'query-activities'
             candidates = adb.shell(*tool, 'query-activities', '--brief', *query_options, *HOME_ARGS)
-        except ValueError:
+        except ValueError as error:
+            failures.append(' '.join((*tool, operation)) + ': ' + str(error))
             continue
         homes = {component(line) for line in candidates.splitlines()}
         homes.discard('')
         return [*tool, 'set-home-activity', *set_options], homes
-    raise NoNativeRoute('未确认本机可用的 HOME 查询和设置命令；可独立评估已有兼容守护')
+    raise NoNativeRoute('未确认本机可用的 HOME 查询和设置命令；检测结果：' + '；'.join(failures))
 
 
 def pull_installed(adb, user, sdk, destination):
@@ -107,10 +125,12 @@ def prepare(adb, user, tools, apk, journal):
     if metadata['home_mode'] != 'standard':
         raise ValueError('当前为无 HOME 的 relay 包，应使用现有兼容守护')
     aware = apk_boot_capability(tools, apk)
-    journal.event('boot_apk', metadata=metadata, directBootAware=aware)
-    if device['sdk'] >= 24 and not aware:
-        raise ValueError('实际 APK 未声明解锁前 HOME；需先更新到支持 Direct Boot 的适配发布包，未修改电视')
     setter, homes = home_commands(adb, device['sdk'], user)
+    journal.event('boot_apk', metadata=metadata, directBootAware=aware['home'], earlyHomeAvailable=EARLY_HOME in homes,
+                  earlyHomeDeclared=aware['placeholder'])
+    if device['sdk'] >= 24 and not any(aware.values()):
+        raise ValueError('实际 APK 未提供解锁前 HOME 或轻量启动入口；需先选择适配发布包，未修改电视')
+    # A disabled placeholder is prepared after HOME is selected; requiring it here is circular.
     before = component(adb.shell(*resolver(adb, device['sdk'], user)))
     if HOME not in homes:
         raise NoNativeRoute('Quiet TV 不在本机 HOME 候选中，可独立评估已有兼容守护')
@@ -159,6 +179,24 @@ def check_device(adb, expected):
         raise ValueError('设备、用户或固件与记录不一致，未继续修改')
 
 
+def ensure_boot_entry(adb, device, journal, required=False):
+    if device['sdk'] < 24:
+        return
+    import device_maintenance as maintenance
+    snapshot = maintenance.inspect(adb, tcl.PACKAGE, device['user'])
+    if 'boot-home-v1' not in snapshot.get('capabilities', []):
+        if required:
+            raise ValueError('停用原桌面需要提供解锁前入口核对接口的 APK，未继续禁用')
+        journal.event('boot_entry_unverified', reason='installed_apk_has_no_readback')
+        return
+    check_device(adb, device)
+    result = maintenance.inspect(adb, tcl.PACKAGE, device['user'], 'boot_home_reconcile')
+    entry = result.get('bootHome', {})
+    journal.event('boot_entry', entry=entry)
+    if entry.get('ready') is not True or required and (entry.get('required') is not True or entry.get('enabled') is not True):
+        raise ValueError('解锁前启动入口未就绪，接管未完成；请保留恢复记录')
+
+
 def apply_plan(adb, plan, setter, journal):
     device = plan['device']
     check_device(adb, device)
@@ -184,6 +222,9 @@ def apply_plan(adb, plan, setter, journal):
         raise ValueError('最终 HOME 不是 Quiet TV，配置未完成')
     if plan['route'] == 'vidaa-property' and adb.shell('getprop', VIDAA) != tcl.PACKAGE:
         raise ValueError('海信主页属性在设置 HOME 后变化，配置未完成')
+    ensure_boot_entry(adb, device, journal)
+    if component(adb.shell(*resolver(adb, device['sdk'], device['user']))) != HOME:
+        raise ValueError('启用启动入口后 HOME 发生变化，请按原记录核对恢复')
     journal.event('boot_configured', route=plan['route'], physicalHome=None, coldBoot=None, wake=None)
     print('开机桌面配置已写入并读回；实体 HOME、普通重启、断电开机及待机唤醒尚未验收。')
 

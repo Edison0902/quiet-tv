@@ -62,11 +62,12 @@ final class HomeGuardState {
     boolean protects(String pkg,SetupPresets rules){
         ComponentName name=ComponentName.unflattenFromString(selected()),fallback=ComponentName.unflattenFromString(preferences.getString("proxyOriginal",""));boolean selected=name!=null && name.getPackageName().equals(pkg);
         if(enabled() && rules.observation()!=null)for(String target:protectedHomes())if(!target.equals(selected()) && target.startsWith(pkg+"/"))return true;
-        return DesktopRoutePolicy.preserve(rules.protectedHomePackage(pkg) || fallback!=null && fallback.getPackageName().equals(pkg) || !BuildConfig.DECLARES_HOME && selected,selected && selected().equals(rules.home()) && rules.homeAllows("disableVerified"),selected,enabled());
+        ComponentName windowHome=ComponentName.unflattenFromString(LegacyWindowHomeGuard.original(context));
+        return windowHome!=null && windowHome.getPackageName().equals(pkg) || DesktopRoutePolicy.preserve(rules.protectedHomePackage(pkg) || fallback!=null && fallback.getPackageName().equals(pkg) || !BuildConfig.DECLARES_HOME && selected,selected && selected().equals(rules.home()) && rules.homeAllows("disableVerified"),selected,enabled());
     }
     // Persist disabled mode before canceling scheduled recovery.
     @android.annotation.SuppressLint("ApplySharedPref")
-    void pause(String reason){if(unlocked(context))new BootAppStore(context).userAction("guard_paused");DiagnosticLog.info("home_guard.pause",reason);preferences.edit().putString("mode","OFF").putBoolean("enabled",false).putString("status",reason).commit();HomeGuardRecovery.cancel();HomeGuardService.cancelPending();HomeGuardSync.pause(context);HomeGuardUsageService.pause(context);DesktopRoutes.disableVendor(context);if(!new HomeProxy(context).pause())status(reason+"；代理暂停回执待确认，主程序启动入口已关闭");}
+    void pause(String reason){if(unlocked(context))new BootAppStore(context).userAction("guard_paused");DiagnosticLog.info("home_guard.pause",reason);preferences.edit().putString("mode","OFF").putBoolean("enabled",false).putBoolean("adbGuardEnabled",false).putString("status",reason).remove(DesktopRoutes.PROXY_UPGRADE).commit();HomeGuardWake.cancel(context);LegacyAdbHomeGuard.stop(context);HomeGuardRecovery.cancel();HomeGuardService.cancelPending();HomeGuardSync.pause(context);HomeGuardUsageService.pause(context);DesktopRoutes.disableVendor(context);if(!new HomeProxy(context).pause())status(reason+"；代理暂停回执待确认，主程序启动入口已关闭");}
     // Persist the selected HOME and firmware before subsequent recovery requests.
     @android.annotation.SuppressLint("ApplySharedPref")
     void select(ComponentName name){if(!name.flattenToString().equals(selected()))new HomeProxy(context).pause();HomeGuardRecovery.cancel();HomeGuardService.cancelPending();preferences.edit().putBoolean("configured",true).putString("home",name.flattenToString()).putString("firmware",Build.FINGERPRINT).commit();new DesktopRoutes(context).reconcileVendor();}
@@ -239,7 +240,7 @@ final class HomeGuardState {
     }
     // Persist enabled mode before requesting recovery.
     @android.annotation.SuppressLint("ApplySharedPref")
-    String enable(){if(new DesktopRoutes(context).proxySelected() && !new HomeProxy(context).pause())return "代理暂停回执待确认，请先恢复原桌面";preferences.edit().putString("mode","AUTO").putBoolean("configured",true).commit();configure();new DesktopRoutes(context).observe();HomeGuardSync.refresh(context);HomeGuardAdb.ensure(context);HomeGuardRecovery.request(context,"用户启用");return enableProblem();}
+    String enable(){if(new DesktopRoutes(context).proxySelected() && !new HomeProxy(context).pause())return "代理暂停回执待确认，请先恢复原桌面";preferences.edit().remove("guardBindingChanged").putString("mode","AUTO").putBoolean("configured",true).commit();configure();new DesktopRoutes(context).observe();HomeGuardSync.refresh(context);HomeGuardAdb.ensure(context);HomeGuardRecovery.ensureBinding(context,"用户启用");return enableProblem();}
     // A boot-only entry does not establish that pressing HOME can be redirected.
     boolean observationReady(){return ready() && (serviceEnabled() && HomeGuardService.connected() || HomeGuardUsageService.connected());}
     boolean compatibleReady(){return new HomeProxy(context).ready() || observationReady();}

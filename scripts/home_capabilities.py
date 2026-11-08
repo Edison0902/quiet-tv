@@ -112,15 +112,20 @@ def collect(adb, device, references=(), selected=None):
                     '核对实际系统 HOME 和厂商属性；属性可读不代表可写或重启有效'),
               route('jm', bool(device['user'] == 0 and 'com.jm.jmlauncher' in packages),
                     '由专项预览另验 HOME.JM 组件、系统包和原属性，不按 JMGO 品牌直接套用'),
-              route('verified', bool(policy.get('disableVerified') and not reason),
-                    reason or '仅精确固件规则授予禁用候选资格；证据备注和实体验收另看'),
+              route('verified', bool(policy.get('disableVerified') and not policy.get('disableRetestRequired') and not reason),
+                    reason or ('历史实验规则待复验，保留已有恢复资格，不新增禁用' if policy.get('disableRetestRequired')
+                               else '仅精确固件规则授予禁用候选资格；证据备注和实体验收另看')),
               route('google', bool(setter and HOME in homes and
                                    (actual.split('/')[0] in GOOGLE or actual.startswith(SETUP + '/') and
                                     len([h for h in homes if h.split('/')[0] in GOOGLE and real_home(h)]) == 1)
                                    and not reason and not setup_blocker and packages),
                     reason or setup_blocker or '先确认系统初始化及恢复基线；可选禁用须明确选择'),
               route('guard', device['sdk'] >= 21 and 'HomeGuardService' in own,
-                    '保留原桌面，核验绑定、事件、自启动和实体按键；可能先显示原桌面再跳转')]
+                    '保留原桌面，核验绑定、事件、自启动和实体按键；可能先显示原桌面再跳转'),
+              route('legacy-adb', device['sdk'] == 19 and 'LegacyAdbHomeGuardService' in own,
+                    '新 APK 的 API19 本机 ADB 守护；须确认原桌面完整组件、端口、应用独立授权及断开电脑后的开机，不修改系统 HOME'),
+              route('legacy-window', device['sdk'] == 18 and 'LegacyWindowHomeGuardService' in own,
+                    'API18 窗口守护候选；须由实际 APK 确认 window-home-guard-v1、原主页与真实窗口，配置后另验绑定和实体 HOME，不修改默认 HOME')]
     return dict(schemaVersion=1, identity=identity, user=device['user'], home=actual,
                 homeCandidates=sorted(homes), realHome=real_home(actual), setter=setter,
                 cvte=any(name.startswith('com.cvte.') for name in packages),

@@ -43,8 +43,11 @@ final class BootAppStore {
         save(editor);
     }}
     private void save(SharedPreferences.Editor editor) throws IOException {
-        java.util.Map<String,?> before=preferences.getAll();
         editor.putBoolean("cover-pending",false).putBoolean("cover-armed",false).putBoolean("cover-stopped",true);
+        commit(preferences,editor);
+    }
+    static void commit(SharedPreferences preferences,SharedPreferences.Editor editor) throws IOException {
+        java.util.Map<String,?> before=preferences.getAll();
         if(editor.commit())return;
         SharedPreferences.Editor rollback=preferences.edit();
         // Restore only this store's snapshot after a failed commit changes its memory map.
@@ -61,7 +64,7 @@ final class BootAppStore {
     }}
     Intent launchIntent(String pkg){
         if(pkg.isEmpty() || pkg.equals(context.getPackageName()) || "home.quiet.tv.test".equals(pkg))return null;
-        ResolveInfo info=new HomeAppCatalog(context).launchable().get(pkg);
+        ResolveInfo info=new HomeAppCatalog(context).find(pkg);
         return info==null?null:new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
             .setComponent(new ComponentName(pkg,info.activityInfo.name))
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
@@ -167,7 +170,8 @@ final class BootAppStore {
             return hdmiBoot()?HDMI:target();
         }
     }
-    String bootId(){
+    String bootId(){return bootId(context);}
+    static String bootId(Context context){
         if(Build.VERSION.SDK_INT>=24){
             try{int count=Settings.Global.getInt(context.getContentResolver(),"boot_count",-1);if(count>=0)return "count:"+count;}
             catch(SecurityException ignored){}

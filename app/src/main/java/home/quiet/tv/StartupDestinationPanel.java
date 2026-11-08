@@ -6,12 +6,12 @@ import android.widget.*;
 
 /** One TV source for manual watching and optional boot entry. */
 final class StartupDestinationPanel extends ManagementPanel {
+    private SourcePairingUi pairingUi;
     private final InputEntryTask inputWork=new InputEntryTask();
     private LinearLayout content;
     private BootAppStore store;
     private DesktopSettingsStore desktop;
     private boolean busy;
-    private int generation;
     private boolean enableAfterTest;
     private String focusTag;
     private View first;
@@ -19,7 +19,7 @@ final class StartupDestinationPanel extends ManagementPanel {
     StartupDestinationPanel(AppManagementActivity activity){super(activity);}
     private String tr(String zh,String en){return activity.tr(zh,en);}
     @Override public void onCreate(Bundle saved){
-        store=new BootAppStore(this);
+        store=new BootAppStore(this);pairingUi=new SourcePairingUi(this);
         desktop=new DesktopSettingsStore(this);
         if(saved!=null){enableAfterTest=saved.getBoolean("enable-after-test",false);focusTag=saved.getString("focus");}
         pageRoot=column();activity.attachPanel(pageRoot);
@@ -27,9 +27,9 @@ final class StartupDestinationPanel extends ManagementPanel {
         pageRoot.addView(scroll,new LinearLayout.LayoutParams(-1,-1));
         content=column();content.setPadding(px(2),0,px(2),px(4));scroll.addView(content,new ScrollView.LayoutParams(-1,-2));render();
     }
-    @Override protected void onResume(){super.onResume();render();if(!store.pendingTest().isEmpty())confirm();}
-    @Override protected void onPause(){remember();super.onPause();inputWork.cancel();++generation;busy=false;if(confirmation!=null)confirmation.dismiss();}
-    @Override protected void onDestroy(){inputWork.close();super.onDestroy();}
+    @Override protected void onResume(){super.onResume();render();pairingUi.resume();if(!store.pendingTest().isEmpty())confirm();}
+    @Override protected void onPause(){remember();if(pairingUi!=null)pairingUi.pause();super.onPause();inputWork.cancel();busy=false;if(confirmation!=null)confirmation.dismiss();}
+    @Override protected void onDestroy(){if(pairingUi!=null)pairingUi.close();inputWork.close();super.onDestroy();}
     @Override protected void onStop(){inputWork.cancel();busy=false;super.onStop();}
     @Override public void handleBack(){inputWork.cancel();busy=false;super.handleBack();}
     @Override public boolean dispatchKeyEvent(KeyEvent event){if(event.getAction()==KeyEvent.ACTION_DOWN&&(event.getKeyCode()==KeyEvent.KEYCODE_BACK||event.getKeyCode()==KeyEvent.KEYCODE_HOME)){inputWork.cancel();busy=false;}return false;}
@@ -41,36 +41,33 @@ final class StartupDestinationPanel extends ManagementPanel {
         view.setOnClickListener(v->operation.run());LinearLayout group=activity.group();activity.addSetting(group,view);
         LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(-1,-2);params.topMargin=px(8);content.addView(group,params);return view;
     }
-    private void render(){
+    void render(){
         boolean restore=pageRoot.hasFocus();remember();content.removeAllViews();
         DesktopSettingsRow visible=action(tr("显示看电视","Show Watch TV"),"show-watch-tv",()->save(()->desktop.showWatchTv(!desktop.showWatchTv())));
         visible.checked(desktop.showWatchTv());first=visible;
-        DesktopSettingsRow target=action(tr("电视信号源","TV source"),"choose",this::choose);
-        target.value(store.watchTarget().isEmpty()?tr("请选择","Choose"):store.watchLabel());target.tail("arrow");
+        DesktopSettingsRow target=action(tr("电视信号源","TV source"),"choose",pairingUi::details);
+        target.value(store.watchTarget().isEmpty()?(new SourcePairingStore(this).entry()==null?tr("请选择","Choose"):tr("系统信号源  手动选择","System inputs  Select manually")):store.watchLabel());target.tail("arrow");
+        DesktopSettingsRow pairing=action(tr("搜索与配对","Search and pair"),"pair-inputs",pairingUi::open);pairing.tail("arrow");
         DesktopSettingsRow boot=action(tr("开机自动看电视","Watch TV on startup"),"boot",this::toggleBoot);
-        boot.checked(store.hdmiBoot());boot.available(!store.watchTarget().isEmpty()&&Build.VERSION.SDK_INT>=21);
-        DesktopSettingsRow watch=action(tr("立即观看","Watch now"),"test",()->test(false));watch.tail("arrow");
-        watch.available(!store.watchTarget().isEmpty()&&Build.VERSION.SDK_INT>=21);
-        activity.wireRows(new DesktopSettingsRow[]{visible,target,boot,watch},managementTab());
+        boot.checked(store.hdmiBoot());boot.available(!store.watchTarget().isEmpty());
+        DesktopSettingsRow watch=action(store.watchTarget().isEmpty()?tr("打开信号源","Open inputs"):tr("立即观看","Watch now"),"test",()->{if(store.watchTarget().isEmpty())openPairedPanel();else test(false);});watch.tail("arrow");
+        watch.available(!store.watchTarget().isEmpty()||new SourcePairingStore(this).entry()!=null);
+        activity.wireRows(new DesktopSettingsRow[]{visible,target,pairing,boot,watch},managementTab());
         if(restore)focusManagementContent();
+    }
+    private void openPairedPanel(){
+        if(busy)return;busy=true;android.content.Context app=getApplicationContext();
+        inputWork.submit(()->{SourceSearch.Candidate candidate=SourcePairing.preferred(app,new SourcePairingStore(app).entry());return candidate==null?null:candidate.prepare(app,null);},(launch,failure)->{
+            busy=false;if(!showing)return;if(launch==null||!launch.current(this)){message("入口已变化，请重新配对");return;}
+            if(launch.blocking())inputWork.submit(()->launch.dispatch(app),(opened,error)->{if(showing&&!Boolean.TRUE.equals(opened))message("入口暂不可用，请检查连接或重新配对");});
+            else if(!launch.dispatch(activity))message("入口暂不可用，请重新配对");
+        });
     }
     private interface Write {void run() throws Exception;}
     private void save(Write operation){try{operation.run();render();}catch(Exception failure){message(failure.getMessage());}}
-    private void choose(){
-        if(busy)return;if(Build.VERSION.SDK_INT<21){message("此系统暂不支持保存电视信号源，请使用遥控器信号源键。");return;}
-        busy=true;int request=++generation;
-        android.content.Context app=getApplicationContext();
-        inputWork.submit(()->HdmiTarget.available(app),(choices,failure)->{
-            if(!showing||request!=generation||isFinishing())return;busy=false;
-            if(failure!=null||choices.isEmpty()){message("未找到可直接进入的电视信号源，请使用首页信号源入口或遥控器信号源键。");return;}
-            Sheet sheet=new Sheet(tr("选择电视信号源","Choose TV source"));Button first=null;
-            for(HdmiTarget target:choices){Button b=sheet.option(target.label,()->{sheet.dialog.dismiss();enableAfterTest=false;save(()->store.saveWatch(target.encode(),target.label));});if(first==null)first=b;}
-            sheet.action("返回",sheet.dialog::dismiss);sheet.show(first);
-        });
-    }
-    private interface Prepared {void accept(InputLaunch launch) throws Exception;}
+    private interface Prepared {void accept(SavedInputLaunch launch) throws Exception;}
     private void prepare(String saved,Prepared action){
-        if(busy||Build.VERSION.SDK_INT<21)return;busy=true;
+        if(busy)return;busy=true;
         android.content.Context app=getApplicationContext();
         inputWork.submit(()->{HdmiTarget target=HdmiTarget.decode(saved);return target==null?null:target.prepare(app);},(launch,failure)->{
             if(!showing||isFinishing()||isDestroyed())return;busy=false;
@@ -103,19 +100,24 @@ final class StartupDestinationPanel extends ManagementPanel {
     }
     private void confirm(){
         final boolean enable=enableAfterTest;
+        final String pending=store.pendingTest();
+        if(pending.isEmpty())return;
         Sheet sheet=new Sheet("电视画面和声音正常吗？");confirmation=sheet.dialog;
         sheet.text(enable?bootMessage():"请确认已进入 "+store.watchLabel()+"，且画面和声音正常。");
         Button cancel=sheet.action("稍后确认",sheet.dialog::dismiss);
-        sheet.option(enable?"正常，开启自动进入":"画面和声音正常",()->{sheet.dialog.dismiss();String pending=store.pendingTest();prepare(pending,launch->{
-            if(!pending.equals(store.pendingTest()))return;
+        sheet.option(enable?"正常，开启自动进入":"画面和声音正常",()->{sheet.dialog.dismiss();if(!currentTest(pending))return;prepare(pending,launch->{
+            if(!currentTest(pending))return;
             save(()->{store.confirmTest(true);if(enable)store.hdmiBoot(true);enableAfterTest=false;});
         });});
-        sheet.option("画面或声音异常",()->{sheet.dialog.dismiss();enableAfterTest=false;save(()->store.confirmTest(false));});sheet.show(cancel);
+        sheet.option("画面或声音异常",()->{sheet.dialog.dismiss();if(!currentTest(pending))return;enableAfterTest=false;save(()->store.confirmTest(false));});sheet.show(cancel);
+    }
+    private boolean currentTest(String pending){
+        if(pending.equals(store.pendingTest())&&pending.equals(store.watchTarget()))return true;
+        message("测试目标已变化，请重新测试。");return false;
     }
     private void toggleBoot(){
         if(store.hdmiBoot()){enableAfterTest=false;save(()->store.hdmiBoot(false));return;}
         if(!store.tested()){test(true);return;}
-        if(Build.VERSION.SDK_INT<21)return;
         String saved=store.watchTarget();prepare(saved,launch->{
             Sheet sheet=new Sheet("开启开机自动看电视？");sheet.text(bootMessage());
             Button cancel=sheet.action("取消",sheet.dialog::dismiss);

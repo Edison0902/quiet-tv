@@ -31,7 +31,6 @@ final class WallpaperStore {
             try { catalog=WallpaperCatalog.read(new JSONObject(new String(catalogFile.readFully(),Charsets.UTF_8))); }
             catch(IOException|JSONException e) { Log.w("QuietTV","Wallpaper catalog could not be read");DiagnosticLog.error("wallpaper.catalog.failed",e); catalog=new WallpaperCatalog(); }
         } else {
-            // Pre-catalog preferences referred only to the retired built-in photos.
             catalog=new WallpaperCatalog();
             try { persist(catalog); } catch(IOException e) { Log.w("QuietTV","Wallpaper migration will retry on next launch"); }
         }
@@ -133,7 +132,7 @@ final class WallpaperStore {
     synchronized String imageKey(String id) {
         if(!WallpaperCatalog.DAILY.equals(id)){
             WallpaperCatalog.Entry entry=catalog.find(id);
-            if(entry!=null&&entry.video()){File poster=poster(id);return id+":"+poster.length()+":"+poster.lastModified();}
+            if(entry!=null&&entry.video()&&entry.custom()){File poster=poster(id);return id+":"+poster.length()+":"+poster.lastModified();}
             return id;
         }
         WallpaperCatalog.DailyImage image=catalog.dailyImages.get(catalog.dailySource);
@@ -176,8 +175,7 @@ final class WallpaperStore {
         screensavers.reconcile(next);
         try{
             persist(next);
-            File deleted=mediaFile(id,entry.video());
-            if(entry.custom()&&deleted.exists()&&!deleted.delete())throw new IOException("Unable to delete wallpaper file");
+            if(entry.custom()){File deleted=mediaFile(id,entry.video());if(deleted.exists()&&!deleted.delete())throw new IOException("Unable to delete wallpaper file");}
         }catch(IOException failure){
             try{persist(old);screensavers.save(oldSaver);}catch(IOException rollback){failure.addSuppressed(rollback);}
             throw failure;
@@ -201,8 +199,9 @@ final class WallpaperStore {
         try { persist(next); } catch(IOException e) { if(!destination.delete()) Log.w("QuietTV","Unindexed wallpaper retained after failed save"); throw e; }
         return entry;
     }
+    long videoCapacity(){return Math.max(0,directory.getUsableSpace()-32L*1024*1024);}
     synchronized void checkVideoCapacity(long incoming) throws IOException {
-        if(directory.getUsableSpace()<incoming+32L*1024*1024)throw VideoDiagnostics.failure("capacity","storage_space_low","电视存储空间不足 / Not enough TV storage");
+        if(incoming>videoCapacity())throw VideoDiagnostics.failure("capacity","storage_space_low","电视存储空间不足 / Not enough TV storage");
     }
     boolean saveVideoPoster(String id,Bitmap image)throws IOException{
         File destination=poster(id);
@@ -222,7 +221,7 @@ final class WallpaperStore {
     synchronized WallpaperCatalog.Entry addVideo(File ready,String filename,WallpaperVideo.Info info,WallpaperUploadServer.Active active) throws IOException {
         long bytes=ready.length();
         if(!active.valid())throw VideoDiagnostics.failure("save","session_ended","上传会话已结束 / Session ended");
-        String id="user-"+UUID.randomUUID(),name=filename.replaceAll("[\\p{Cntrl}/\\\\]"," ").replaceFirst("(?i)\\.(mp4|mov|mkv|webm)$", "").trim();
+        String id="user-"+UUID.randomUUID(),name=filename.replaceAll("[\\p{Cntrl}/\\\\]"," ").replaceFirst("(?i)\\.(mp4|mov|mkv|webm|m4v|3gp|3g2|ts|m2ts|mts|mpg|mpeg|vob|flv)$", "").trim();
         if(name.isEmpty())name="动态壁纸 / Video wallpaper";if(name.length()>48)name=name.substring(0,48);
         WallpaperCatalog.Entry entry=new WallpaperCatalog.Entry(id,name,info.width,info.height,bytes,"video",info.mime,info.durationMs,info.fps,info.rotation,info.pixelRatio);
         File destination=mediaFile(id,true);if(!ready.renameTo(destination))throw VideoDiagnostics.failure("save","video_rename_failed","无法保存视频 / Unable to save video");

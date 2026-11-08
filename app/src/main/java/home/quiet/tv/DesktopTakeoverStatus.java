@@ -13,6 +13,15 @@ final class DesktopTakeoverStatus {
             if(!HomeGuardState.unlocked(context))return new DesktopTakeoverStatus("incomplete","等待系统解锁","解锁后重新检查桌面接管状态。");
             if(guard.preferences.getBoolean("proxyPausePending",false))return repair("暂停尚未确认，请通过电脑继续恢复。");
             if("OFF".equals(guard.preferences.getString("mode","AUTO")))return new DesktopTakeoverStatus("paused","已暂停","需要继续接管时，通过电脑恢复原有配置。");
+            if(LegacyWindowHomeGuard.configured(context)){
+                if(!LegacyWindowHomeGuard.enabled(context))return repair("窗口守护配置已变化，请通过电脑核对固件及原桌面版本。");
+                if(!LegacyWindowHomeGuard.authorized(context) || !LegacyWindowHomeGuardService.connected())return repair("窗口守护无障碍尚未连接，请通过电脑检查。");
+                return new DesktopTakeoverStatus("pending","窗口守护待验证","保留系统原桌面；实体 HOME、开机和待机唤醒须分别验证。");
+            }
+            if(LegacyAdbHomeGuard.configured(context)){
+                if(!LegacyAdbHomeGuard.enabled(context))return repair("ADB 守护配置已变化，请通过电脑核对固件及原桌面。");
+                return new DesktopTakeoverStatus("pending","本机 ADB 守护待验证",LegacyAdbHomeGuardService.status()+"；重启后须确认本机 ADB 端口仍可连接。");
+            }
             JSONObject record=new SetupStore(context).get().optJSONObject("takeover");
             if(record!=null && !java.util.Arrays.asList("applied","restored","rolled-back").contains(record.optString("state")))
                 return new DesktopTakeoverStatus("incomplete","配置尚未完成","请通过电脑继续原任务，核对恢复记录。");
@@ -23,7 +32,10 @@ final class DesktopTakeoverStatus {
                 return new DesktopTakeoverStatus("unconfigured","尚未配置","可先选择系统默认桌面；没有此入口时，通过电脑配置。");
             }
             if(!guard.supported())return own?new DesktopTakeoverStatus("pending","已选择默认桌面，待验证","此系统的守护能力受限，请通过电脑核对实体 HOME 和开机结果。"):limited();
-            DesktopRoutes routes=new DesktopRoutes(context,false);String problem=routes.configurationProblem();
+            DesktopRoutes routes=new DesktopRoutes(context,false);
+            if(routes.proxyUpgradePending())return new DesktopTakeoverStatus("repair","配置已保留，接管待恢复",guard.preferences.getString("status","请通过电脑继续恢复原有 HOME 代理。"));
+            if(guard.enabled() && HomeGuardRecovery.bindingBlocked(context))return new DesktopTakeoverStatus("repair","守护恢复待核对","无障碍设置已变化，已保留原接管方案；请通过电脑核对后恢复守护。");
+            String problem=routes.configurationProblem();
             if(!problem.isEmpty())return repair("请通过电脑检查并修复现有配置。");
             boolean passed=true;
             for(String scene:new String[]{"home","reboot","coldBoot","wake"}){

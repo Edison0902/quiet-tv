@@ -170,8 +170,10 @@ final class AdbController implements Closeable {
                     jmFactory=AdbIdentity.jmFactory(uid,Build.VERSION.SDK_INT,Build.MODEL,shell("getprop ro.board.platform"),shell("getprop ro.jm.model.name"),systemRouter);
                     accepted=jmFactory;
                 }
+                String identityProfile=jmFactory?"jm_factory":accepted && uid==0
+                        ?identity.matches("(?s).*\\bcontext=u:r:hsc:s0\\s*$")?"hisense_hsc":"hisense_hshell":"shell";
                 DiagnosticLog.info("adb.identity","attempt="+diagnosticId(attempt)+" generation="+attempt+" uid="+uid
-                        +" profile="+(jmFactory?"jm_factory":accepted && uid==0?"hisense_hshell":"shell")+" accepted="+accepted);
+                        +" profile="+identityProfile+" accepted="+accepted);
                 if(!accepted){
                     identityContext(attempt);
                     throw new IOException("ADB 身份不受支持；仅接受普通 shell 或已匹配的工厂接口");
@@ -267,6 +269,16 @@ final class AdbController implements Closeable {
     String diagnosticShell(String command) throws Exception {
         if(!Arrays.asList("dumpsys activity activities","dumpsys window windows","dumpsys activity top").contains(command))throw new IllegalArgumentException("Unsupported diagnostic query");
         return shell(command,512*1024);
+    }
+    String inputDiagnosticShell(String command) throws Exception {
+        if(!Arrays.asList("dumpsys activity activities","dumpsys window windows","dumpsys activity top",
+                "dumpsys tv_input","dumpsys hdmi_control","dumpsys -l","am help","logcat --help",
+                "logcat -d -t 200 -v threadtime ActivityManager:I ActivityTaskManager:I TvInputManagerService:I HdmiControlService:I *:S").contains(command))
+            throw new IllegalArgumentException("Unsupported input diagnostic query");
+        String output=shell(command,512*1024);
+        if(output.contains("Permission Denial")||output.contains("Permission denied"))throw new SecurityException("Input query restricted");
+        if(output.contains("Can't find service")||output.startsWith("Unknown command"))throw new InputAdb.UnsupportedQuery("Input query unsupported");
+        return output;
     }
     private String shell(String command,int maximumBytes) throws Exception {
         int request=generation.get();AdbConnection c=connection;if(c==null)throw new IOException("需要连接 ADB");
