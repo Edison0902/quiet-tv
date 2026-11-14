@@ -184,6 +184,8 @@ public final class HomeActivity extends androidx.activity.ComponentActivity {
         IntentFilter packages=new IntentFilter(Intent.ACTION_PACKAGE_ADDED);packages.addAction(Intent.ACTION_PACKAGE_REMOVED);packages.addAction(Intent.ACTION_PACKAGE_CHANGED);packages.addDataScheme("package");
         registerReceiver(packageReceiver,packages);
         loadApps("create");
+        // 轻舟接收器保活 + adb 开关恢复(用户裁定绑定桌面;见 CastboxLink 注释)
+        CastboxLink.start(this);
     }
 
     private void resumeAfterUnlock(){
